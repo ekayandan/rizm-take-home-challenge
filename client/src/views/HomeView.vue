@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, type SiteDayCost } from "../api";
+import ShiftHours from "../components/ShiftHours.vue";
 import { useSitesStore } from "../stores/sites";
 
 const store = useSitesStore();
@@ -93,13 +94,17 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 
     <table>
       <thead>
-        <tr><th>Hall</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
+        <tr><th>Hall</th><th>Shift</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="hall in site.halls" :key="hall.id">
           <td>
             <RouterLink :to="{ name: 'hall', params: { hallId: hall.id } }">{{ hall.name }}</RouterLink>
             <div v-if="hall.notes" class="muted small">{{ hall.notes }}</div>
+          </td>
+          <td>
+            <ShiftHours v-if="hall.shifts?.length" :shifts="hall.shifts" />
+            <span v-else class="muted">–</span>
           </td>
           <template v-if="hallCost(site.id, hall.id)?.cost_eur != null">
             <td>{{ eur(hallCost(site.id, hall.id)!.cost_eur!) }}</td>

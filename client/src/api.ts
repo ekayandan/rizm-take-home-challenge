@@ -1,6 +1,8 @@
 /** Thin typed client for the JSON API (proxied to the Node server by Vite). */
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
-export interface SiteHall extends HallSummary { first_date: string | null; last_date: string | null }
+/** Weekdays count from 0 = Monday; start and end are local wall-clock times. */
+export interface Shift { weekdays: number[]; start: string; end: string }
+export interface SiteHall extends HallSummary { first_date: string | null; last_date: string | null; shifts: Shift[] | null }
 export interface Site {
   id: string;
   name: string;
