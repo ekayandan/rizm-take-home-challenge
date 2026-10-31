@@ -11,11 +11,17 @@
  * Maintenance windows (an asset of a hall is unavailable between two instants):
  *
  *   GET  /api/halls/:hallId/maintenance        the hall's windows, earliest start first
- *   POST /api/halls/:hallId/maintenance {asset, start, end}
+ *   POST /api/halls/:hallId/maintenance {asset, start, end, reason}
  *                                               asset is fan, boiler or chiller; start and end are
  *                                               local wall-clock times "YYYY-MM-DDTHH:MM" in the
  *                                               hall's timezone (or ISO instants with Z/offset);
- *                                               end must be after start. Admins and operators only.
+ *                                               end must be after start; reason is required.
+ *                                               Admins and operators only.
+ *
+ * Interventions (the history, of every type, with who, when and why):
+ *
+ *   GET  /api/interventions                    those of the user's sites, revoked ones included,
+ *                                               newest first
  *
  * All other routes are GET:
  *
@@ -43,7 +49,7 @@ import {
 } from "./auth.ts";
 import { MissingDatabase, type DB } from "./db.ts";
 import {
-  ASSETS, dateRange, getHall, insertMaintenanceWindow, listMaintenanceWindows, getScheduleSteps, getSite, getSteps, listDays, listHalls, listScheduleNames, listSites, stepRange,
+  ASSETS, dateRange, getHall, insertMaintenanceWindow, listInterventions, listMaintenanceWindows, getScheduleSteps, getSite, getSteps, listDays, listHalls, listScheduleNames, listSites, stepRange,
   type Asset, type HallRow, type MaintenanceWindowRow, type SiteRow,
 } from "./repo.ts";
 import { formatOffset, isIsoDate, localParts, localToUtc } from "./time.ts";
@@ -137,6 +143,25 @@ function maintenanceOut(w: MaintenanceWindowRow, hall: HallRow) {
   return { ...w, start_local: localIso(w.start_utc, hall.timezone), end_local: localIso(w.end_utc, hall.timezone) };
 }
 
+/** Interventions of all halls on the user's sites, newest first, named for display. */
+function interventionHistory(db: DB, user: User) {
+  const sites = listSites(db).filter((s) => user.sites.includes(s.id));
+  return sites
+    .flatMap((s) => listHalls(db, s.id).flatMap((h) =>
+      listInterventions(db, h.id).map((i) => ({ ...i, site_name: s.name, hall_name: h.name, timezone: h.timezone }))))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id - a.id);
+}
+
+const MAX_REASON_LENGTH = 500;
+
+/** The reason an intervention needs, trimmed. */
+function requireReason(body: Record<string, unknown>): string {
+  const v = typeof body.reason === "string" ? body.reason.trim() : "";
+  if (!v) throw new BadRequest("'reason' is required");
+  if (v.length > MAX_REASON_LENGTH) throw new BadRequest(`'reason' must be at most ${MAX_REASON_LENGTH} characters`);
+  return v;
+}
+
 const INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
 /** A body field as a UTC ISO instant: local wall-clock time in the hall's timezone, or an ISO instant with offset. */
@@ -169,7 +194,8 @@ const postRoutes: [RegExp, PostHandler][] = [
     const start = requireInstant(body, "start", hall.timezone);
     const end = requireInstant(body, "end", hall.timezone);
     if (end <= start) throw new BadRequest("'end' must be after 'start'");
-    const row = insertMaintenanceWindow(db, { hall_id: id, asset: asset as Asset, start_utc: start, end_utc: end, created_by: user.id });
+    const reason = requireReason(body);
+    const row = insertMaintenanceWindow(db, { hall_id: id, asset: asset as Asset, start_utc: start, end_utc: end, reason, user });
     return maintenanceOut(row, hall);
   }],
 ];
@@ -211,6 +237,8 @@ const routes: [RegExp, Handler][] = [
     const hall = requireHall(db, id, user);
     return listMaintenanceWindows(db, id).map((w) => maintenanceOut(w, hall));
   }],
+
+  [/^\/api\/interventions$/, (db, _p, _q, user) => interventionHistory(db, user)],
 
   [/^\/api\/halls\/([^/]+)\/series$/, (db, [id], q, user) => {
     const hall = requireHall(db, id, user);

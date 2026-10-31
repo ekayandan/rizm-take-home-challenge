@@ -93,16 +93,85 @@ CREATE TABLE sessions (
 );
 CREATE INDEX sessions_user ON sessions(user_id);
 
+-- One row per intervention of any type, with one details row in the table of its type.
+-- Interventions are the history: they are never deleted, and only the revoke columns can change,
+-- once. hall_id and created_by have no foreign keys and the name is a copy, so that removing a
+-- hall or a user cannot erase or blank the record. Instants are ISO strings.
+CREATE TABLE interventions (
+  id               INTEGER PRIMARY KEY,
+  hall_id          TEXT NOT NULL,
+  type             TEXT NOT NULL CHECK (type IN ('maintenance')),
+  reason           TEXT NOT NULL CHECK (length(trim(reason, ' ' || char(9, 10, 13))) > 0),
+  created_by       TEXT NOT NULL,
+  created_by_name  TEXT NOT NULL,
+  created_at       TEXT NOT NULL,
+  revoked_at       TEXT,
+  revoked_by       TEXT,
+  revoked_by_name  TEXT,
+  revoke_reason    TEXT,
+  -- IS NOT NULL is spelled out because a CHECK that evaluates to NULL passes.
+  CHECK (
+    (revoked_at IS NULL AND revoked_by IS NULL AND revoked_by_name IS NULL AND revoke_reason IS NULL)
+    OR (
+      revoked_at IS NOT NULL AND revoked_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*Z'
+      AND revoked_by IS NOT NULL AND length(trim(revoked_by)) > 0
+      AND revoked_by_name IS NOT NULL AND length(trim(revoked_by_name)) > 0
+      AND revoke_reason IS NOT NULL AND length(trim(revoke_reason, ' ' || char(9, 10, 13))) > 0
+    )
+  )
+);
+CREATE INDEX interventions_hall ON interventions(hall_id, created_at);
+
+-- INSERT OR REPLACE fires no delete or update trigger, so an existing id is refused here.
+CREATE TRIGGER interventions_insert_new BEFORE INSERT ON interventions
+WHEN NEW.revoked_at IS NOT NULL OR EXISTS (SELECT 1 FROM interventions WHERE id = NEW.id)
+BEGIN
+  SELECT RAISE(ABORT, 'interventions start active and cannot be replaced');
+END;
+
+CREATE TRIGGER interventions_no_delete BEFORE DELETE ON interventions
+BEGIN
+  SELECT RAISE(ABORT, 'interventions cannot be deleted');
+END;
+
+CREATE TRIGGER interventions_revoke_only BEFORE UPDATE ON interventions
+WHEN OLD.revoked_at IS NOT NULL
+  OR NEW.id IS NOT OLD.id
+  OR NEW.hall_id IS NOT OLD.hall_id
+  OR NEW.type IS NOT OLD.type
+  OR NEW.reason IS NOT OLD.reason
+  OR NEW.created_by IS NOT OLD.created_by
+  OR NEW.created_by_name IS NOT OLD.created_by_name
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'interventions can only be revoked, once');
+END;
+
+-- Every read of what is in force goes through this view, so a revoked intervention cannot leak in.
+CREATE VIEW active_interventions AS SELECT * FROM interventions WHERE revoked_at IS NULL;
+
 -- An asset of a hall is unavailable from start_utc (inclusive) to end_utc (exclusive).
 -- Instants are stored as ISO strings in UTC (YYYY-MM-DDTHH:MM:SS.sssZ), so text order is time order.
 CREATE TABLE maintenance_windows (
-  id          INTEGER PRIMARY KEY,
-  hall_id     TEXT NOT NULL REFERENCES halls(id) ON DELETE CASCADE,
-  asset       TEXT NOT NULL CHECK (asset IN ('fan', 'boiler', 'chiller')),
-  start_utc   TEXT NOT NULL,
-  end_utc     TEXT NOT NULL,
-  created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
-  created_at  TEXT NOT NULL,                    -- ISO instant
+  intervention_id  INTEGER PRIMARY KEY REFERENCES interventions(id),
+  asset            TEXT NOT NULL CHECK (asset IN ('fan', 'boiler', 'chiller')),
+  start_utc        TEXT NOT NULL,
+  end_utc          TEXT NOT NULL,
   CHECK (end_utc > start_utc)
 );
-CREATE INDEX maintenance_windows_hall ON maintenance_windows(hall_id, start_utc);
+
+CREATE TRIGGER maintenance_windows_insert_new BEFORE INSERT ON maintenance_windows
+WHEN EXISTS (SELECT 1 FROM maintenance_windows WHERE intervention_id = NEW.intervention_id)
+BEGIN
+  SELECT RAISE(ABORT, 'maintenance windows cannot be replaced');
+END;
+
+CREATE TRIGGER maintenance_windows_no_delete BEFORE DELETE ON maintenance_windows
+BEGIN
+  SELECT RAISE(ABORT, 'maintenance windows cannot be deleted');
+END;
+
+CREATE TRIGGER maintenance_windows_no_update BEFORE UPDATE ON maintenance_windows
+BEGIN
+  SELECT RAISE(ABORT, 'maintenance windows cannot be changed');
+END;
