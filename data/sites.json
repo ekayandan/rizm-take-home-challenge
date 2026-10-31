@@ -1,0 +1,33 @@
+{
+  "sites": [
+    {
+      "id": "nordwerk",
+      "name": "Nordwerk Stade",
+      "city": "Stade",
+      "timezone": "Europe/Berlin"
+    },
+    {
+      "id": "suedwerk",
+      "name": "S\u00fcdwerk Kempten",
+      "city": "Kempten",
+      "timezone": "Europe/Berlin"
+    }
+  ],
+  "halls": [
+    {
+      "id": "halle-3",
+      "site_id": "nordwerk",
+      "name": "Halle 3 Montage"
+    },
+    {
+      "id": "halle-7",
+      "site_id": "nordwerk",
+      "name": "Halle 7 Endmontage"
+    },
+    {
+      "id": "halle-a",
+      "site_id": "suedwerk",
+      "name": "Halle A Vormontage"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/tools/ai-logs/hook.sh\" codex SessionStart",
+            "timeout": 30,
+            "statusMessage": "Recording AI session (see README.md)"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/tools/ai-logs/hook.sh\" codex UserPromptSubmit",
+            "timeout": 30,
+            "statusMessage": "Recording AI session (see README.md)"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/tools/ai-logs/hook.sh\" codex Stop",
+            "timeout": 30,
+            "statusMessage": "Recording AI session (see README.md)"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$(git rev-parse --show-toplevel 2>/dev/null || pwd)/tools/ai-logs/hook.sh\" codex SessionEnd",
+            "timeout": 30,
+            "statusMessage": "Recording AI session (see README.md)"
+          }
+        ]
+      }
+    ]
+  }
+}

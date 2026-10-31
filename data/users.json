@@ -1,0 +1,45 @@
+{
+  "users": [
+    {
+      "id": "u-jonas",
+      "name": "Jonas Weber",
+      "email": "jonas.weber@example.com",
+      "password": "admin-2026",
+      "role": "admin",
+      "sites": [
+        "nordwerk",
+        "suedwerk"
+      ]
+    },
+    {
+      "id": "u-lena",
+      "name": "Lena Hartmann",
+      "email": "lena.hartmann@example.com",
+      "password": "operator-2026",
+      "role": "operator",
+      "sites": [
+        "nordwerk"
+      ]
+    },
+    {
+      "id": "u-tarek",
+      "name": "Tarek Yilmaz",
+      "email": "tarek.yilmaz@example.com",
+      "password": "operator-2026",
+      "role": "operator",
+      "sites": [
+        "suedwerk"
+      ]
+    },
+    {
+      "id": "u-petra",
+      "name": "Petra Koch",
+      "email": "petra.koch@example.com",
+      "password": "viewer-2026",
+      "role": "viewer",
+      "sites": [
+        "nordwerk"
+      ]
+    }
+  ]
+}

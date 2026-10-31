@@ -1,0 +1,21 @@
+:root { font-family: system-ui, sans-serif; color: #1d232a; background: #f5f6f8; }
+body { margin: 0; }
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+aside { background: #1d232a; color: #e8eaed; padding: 16px; }
+aside a { display: block; color: #c9d1d9; text-decoration: none; padding: 4px 0; }
+aside a.router-link-active { color: #fff; font-weight: 600; }
+aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8b949e; margin: 20px 0 4px; }
+.brand { font-weight: 700; font-size: 18px; }
+main { padding: 24px 32px; }
+.card { background: #fff; border: 1px solid #dde1e6; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eef0f3; font-variant-numeric: tabular-nums; }
+.muted { color: #6a737d; }
+.error { color: #b42318; }
+select { margin-left: 8px; padding: 4px; }
+@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } }
+aside { display: flex; flex-direction: column; }
+.account { margin-top: auto; padding-top: 24px; font-size: 14px; }
+.account .role { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin: 2px 0 8px; }
+.account button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid #484f58; border-radius: 6px; background: transparent; color: #e8eaed; cursor: pointer; }
+.account button:hover { background: #30363d; }

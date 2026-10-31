@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "sh tools/ai-logs/hook.sh cursor sessionStart", "timeout": 30 }
+    ],
+    "beforeSubmitPrompt": [
+      { "command": "sh tools/ai-logs/hook.sh cursor beforeSubmitPrompt", "timeout": 30 }
+    ],
+    "afterFileEdit": [
+      { "command": "sh tools/ai-logs/hook.sh cursor afterFileEdit", "timeout": 30 }
+    ],
+    "stop": [
+      { "command": "sh tools/ai-logs/hook.sh cursor stop", "timeout": 30, "loop_limit": 1 }
+    ],
+    "sessionEnd": [
+      { "command": "sh tools/ai-logs/hook.sh cursor sessionEnd", "timeout": 30 }
+    ]
+  }
+}

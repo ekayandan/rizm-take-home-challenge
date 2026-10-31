@@ -1,0 +1,43 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "ai-logs",
+            "description": "Copy this session's transcript into .logs/ (see README.md)",
+            "command": "sh tools/ai-logs/hook.sh gemini SessionStart",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "ai-logs",
+            "description": "Copy this session's transcript into .logs/ (see README.md)",
+            "command": "sh tools/ai-logs/hook.sh gemini AfterAgent",
+            "timeout": 30000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "name": "ai-logs",
+            "description": "Copy this session's transcript into .logs/ (see README.md)",
+            "command": "sh tools/ai-logs/hook.sh gemini SessionEnd",
+            "timeout": 30000
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+# AI session logs are collected locally and handed in via ./submit.sh, never committed.
+.logs/
+submission-*.zip
+
+node_modules/
+dist/
+data/app.db
+data/app.db-*
+
+# Python bytecode from the collector's tests
+__pycache__/
+*.pyc
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

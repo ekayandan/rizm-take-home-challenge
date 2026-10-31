@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "sh tools/ai-logs/hook.sh copilot sessionStart",
+        "timeoutSec": 30
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "sh tools/ai-logs/hook.sh copilot userPromptSubmitted",
+        "timeoutSec": 30
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "sh tools/ai-logs/hook.sh copilot agentStop",
+        "timeoutSec": 30
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "sh tools/ai-logs/hook.sh copilot sessionEnd",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
