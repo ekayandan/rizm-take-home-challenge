@@ -8,6 +8,8 @@
  * - "state" lines and bounds have N+1 values, one per state point.
  */
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import TermHelp from "./TermHelp.vue";
+import type { GlossaryTerm } from "../glossary";
 
 export interface ChartLine {
   label: string;
@@ -38,6 +40,8 @@ export interface ChartViolation {
 export interface ChartPanel {
   id: string;
   title: string;
+  /** Explained by a "?" in the left margin, level with the title. */
+  term?: GlossaryTerm;
   unit: string;
   height: number;
   lines: ChartLine[];
@@ -211,6 +215,16 @@ function valueAt(l: ChartLine, i: number): string {
       </template>
       <span v-else class="muted">Hover the chart for values</span>
     </div>
+    <div class="plot">
+    <!-- Outside the svg: role="img" hides its children from screen readers. -->
+    <template v-for="l in layout" :key="l.p.id">
+      <TermHelp
+        v-if="l.p.term"
+        class="panel-help"
+        :term="l.p.term"
+        :style="{ top: `${l.top - 8 - (stackedHeader ? LEGEND_ROW : 0) - 16}px`, left: `${M.left - 26}px` }"
+      />
+    </template>
     <svg
       :width="width"
       :height="height"
@@ -285,11 +299,14 @@ function valueAt(l: ChartLine, i: number): string {
         <rect :x="x(hover)" :y="0" :width="Math.max(1, x(hover + 1) - x(hover))" :height="height - AXIS_H" />
       </g>
     </svg>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .day-chart { width: 100%; min-width: 0; }
+.plot { position: relative; }
+.panel-help { position: absolute; z-index: 1; }
 svg { display: block; touch-action: pan-y; }
 .readout { font-size: 13px; min-height: 18px; font-variant-numeric: tabular-nums; }
 .title { font-size: 13px; font-weight: 600; fill: var(--fg, #1d232a); }

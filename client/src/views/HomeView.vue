@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, type SiteDayCost } from "../api";
 import DayPicker from "../components/DayPicker.vue";
 import ShiftHours from "../components/ShiftHours.vue";
+import TermHelp from "../components/TermHelp.vue";
 import { useSitesStore } from "../stores/sites";
 
 const store = useSitesStore();
@@ -89,7 +90,7 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 
     <table>
       <thead>
-        <tr><th>Hall</th><th>Shift</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
+        <tr><th>Hall</th><th>Shift</th><th><TermHelp term="optimized">Optimized cost</TermHelp></th><th>Energy</th><th><TermHelp term="feasible">Feasible</TermHelp></th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="hall in site.halls" :key="hall.id">
