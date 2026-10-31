@@ -58,7 +58,11 @@ function hallSummary(h: HallRow) {
 
 /** A site with its halls and the span of local dates any of its halls has data for. */
 function siteWithHalls(db: DB, s: SiteRow) {
-  const halls = listHalls(db, s.id).map((h) => ({ ...hallSummary(h), ...dateRange(db, h.id) }));
+  const halls = listHalls(db, s.id).map((h) => ({
+    ...hallSummary(h),
+    ...dateRange(db, h.id),
+    shifts: h.shifts_json ? JSON.parse(h.shifts_json) : null,
+  }));
   const firsts = halls.map((h) => h.first_date).filter((d): d is string => d !== null).sort();
   const lasts = halls.map((h) => h.last_date).filter((d): d is string => d !== null).sort();
   return { ...s, first_date: firsts[0] ?? null, last_date: lasts.at(-1) ?? null, halls };
