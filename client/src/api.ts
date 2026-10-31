@@ -1,4 +1,6 @@
 /** Thin typed client for the JSON API (proxied to the Node server by Vite). */
+import type { MeasuredViolation } from "./violations";
+
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
 export interface SiteHall extends HallSummary { first_date: string | null; last_date: string | null }
 export interface Site {
@@ -32,6 +34,8 @@ export interface DayCostReport {
   steps: number;
 }
 export interface Violation { step: number; constraint: string; value: number | number[]; limit: number | number[]; ts_utc: string }
+export type { MeasuredViolation };
+export interface HallViolations { step_start: number; step_end: number; violations: MeasuredViolation[] }
 export interface Trace {
   /** N+1 state points: start of each step plus the end of the day. */
   temperature_c: number[];
@@ -184,6 +188,8 @@ export const api = {
     );
     return r.schedules[schedule];
   },
+  violations: (id: string, date: string) =>
+    get<HallViolations>(`/halls/${encodeURIComponent(id)}/violations?from=${date}&to=${date}`),
   maintenance: (id: string) => get<MaintenanceWindow[]>(`/halls/${encodeURIComponent(id)}/maintenance`),
   addMaintenance: (id: string, w: NewMaintenanceWindow) =>
     post<MaintenanceWindow>(`/halls/${encodeURIComponent(id)}/maintenance`, w),

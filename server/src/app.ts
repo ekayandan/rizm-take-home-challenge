@@ -31,6 +31,9 @@
  *                                               for the local dates from … to (inclusive)
  *   /api/halls/:hallId/cost?date=[&schedule=][&initial=simulated|measured][&trace=1]
  *                                               simulate() cost of a schedule for one local day
+ *   /api/halls/:hallId/violations?from=&to=     comfort bounds broken by the measured state for the
+ *                                               local dates from … to; a day owns the state points
+ *                                               after its first step, as in dayCost()
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dayCost, BadRequest, NotFound, type InitialStateSource } from "./cost.ts";
@@ -44,6 +47,7 @@ import {
   type Asset, type HallRow, type MaintenanceWindowRow, type SiteRow,
 } from "./repo.ts";
 import { formatOffset, isIsoDate, localParts, localToUtc } from "./time.ts";
+import { measuredViolations } from "./violations.ts";
 
 type Query = URLSearchParams;
 type Handler = (db: DB, params: string[], q: Query, user: User) => unknown;
@@ -258,6 +262,17 @@ const routes: [RegExp, Handler][] = [
         co2_ppm: rows.map((r) => r.measured_co2_ppm),
       },
     };
+  }],
+
+  [/^\/api\/halls\/([^/]+)\/violations$/, (db, [id], q, user) => {
+    requireHall(db, id, user);
+    const from = requireDate(q, "from");
+    const to = requireDate(q, "to", from);
+    if (to < from) throw new BadRequest("'to' must not be before 'from'");
+    const range = stepRange(db, id, from, to);
+    if (!range) throw new BadRequest(`no data for hall '${id}' between ${from} and ${to}`);
+    const first = range.start === 0 ? 0 : range.start + 1;
+    return { hall_id: id, from, to, step_start: range.start, step_end: range.end, violations: measuredViolations(getSteps(db, id, first, range.end)) };
   }],
 
   [/^\/api\/halls\/([^/]+)\/cost$/, (db, [id], q, user) => {

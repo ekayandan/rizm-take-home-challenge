@@ -10,7 +10,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { simulate, type Instance, type Schedule } from "../checker/checker.ts";
+import { simulate, TOL, type Instance, type Schedule } from "../checker/checker.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const tmp = mkdtempSync(join(tmpdir(), "hall-api-"));
@@ -218,6 +218,46 @@ test("maintenance windows: operators add them, everyone on the site lists them",
   assert.equal((await get(path, viewer)).body.length, 2);
   assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00" }, viewer)).status, 403);
   assert.equal((await get("/halls/halle-7/maintenance", lena)).body.length, 0);
+});
+
+test("violations: measured breaches match the raw file and each belongs to one day", async () => {
+  for (const hall of halls) {
+    const raw = hall as unknown as { measured: { temperature_c: number[]; co2_ppm: number[] } };
+    const expected = new Set<string>();
+    raw.measured.temperature_c.forEach((T, i) => {
+      if (T < hall.bounds.temp_min_c[i] - TOL) expected.add(`${i}:temp_below_min`);
+      if (T > hall.bounds.temp_max_c[i] + TOL) expected.add(`${i}:temp_above_max`);
+      if (raw.measured.co2_ppm[i] > hall.bounds.co2_max_ppm[i] + TOL) expected.add(`${i}:co2_above_max`);
+    });
+    assert.ok(expected.size > 0, `${hall.id} has measured breaches`);
+
+    const { body: detail } = await get(`/halls/${hall.id}`);
+    const seen: string[] = [];
+    for (const d of detail.days) {
+      const { status, body } = await get(`/halls/${hall.id}/violations?from=${d.date}&to=${d.date}`);
+      assert.equal(status, 200);
+      for (const v of body.violations) {
+        assert.ok(v.over > 0);
+        assert.ok(v.step >= body.step_start && v.step <= body.step_end);
+        seen.push(`${v.step}:${v.constraint}`);
+      }
+    }
+    // Days cover every state point once, including the 25-hour day.
+    assert.equal(seen.length, new Set(seen).size);
+    assert.deepEqual(new Set(seen), expected);
+  }
+});
+
+test("violations: validation and access", async () => {
+  const id = halls[0].id;
+  assert.equal((await get(`/halls/${id}/violations`)).status, 400);
+  assert.equal((await get(`/halls/${id}/violations?from=2020-01-01`)).status, 400);
+  assert.equal((await get(`/halls/nope/violations?from=2026-10-06`)).status, 404);
+  assert.equal((await get(`/halls/${id}/violations?from=2026-10-06`, "")).status, 401);
+  const { body: sites } = await get("/sites");
+  const suedwerkHall = sites.find((s: any) => s.id === "suedwerk").halls[0].id;
+  const viewer = await login("petra.koch@example.com", "viewer-2026");
+  assert.equal((await get(`/halls/${suedwerkHall}/violations?from=2026-10-06`, viewer)).status, 404);
 });
 
 test("maintenance windows: validation and access", async () => {

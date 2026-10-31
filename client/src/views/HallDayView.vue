@@ -7,10 +7,12 @@
  */
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, type DayCostTraced, type HallDetail, type HallSeries } from "../api";
+import { api, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
 import { useSitesStore } from "../stores/sites";
-import DayChart, { type ChartPanel } from "../components/DayChart.vue";
+import DayChart, { type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
 import MaintenancePanel from "../components/MaintenancePanel.vue";
+import BreachList from "../components/BreachList.vue";
+import { amount, num } from "../violations";
 
 const props = defineProps<{ hallId: string; date: string }>();
 const route = useRoute();
@@ -23,6 +25,7 @@ const label = (s: string) => SCHEDULE_LABELS[s] ?? s;
 const hall = ref<HallDetail | null>(null);
 const series = ref<HallSeries | null>(null);
 const costs = ref<Record<string, DayCostTraced>>({});
+const measuredBreaches = ref<MeasuredViolation[]>([]);
 const error = ref<string | null>(null);
 const loading = ref(false);
 
@@ -66,13 +69,16 @@ watch(
     error.value = null;
     series.value = null;
     costs.value = {};
+    measuredBreaches.value = [];
     try {
-      const [s, ...reports] = await Promise.all([
+      const [s, v, ...reports] = await Promise.all([
         api.series(id, date),
+        api.violations(id, date),
         ...names.map((n) => api.scheduleDayCost(id, date, n)),
       ]);
       if (req !== request) return;
       series.value = s;
+      measuredBreaches.value = v.violations;
       costs.value = Object.fromEntries(names.map((n, i) => [n, reports[i]]));
     } catch (e) {
       if (req === request) error.value = (e as Error).message;
@@ -95,8 +101,39 @@ const shown = computed(() => costs.value[schedule.value] ?? null);
 const baseline = computed(() => (schedule.value !== "baseline" ? costs.value.baseline ?? null : null));
 
 const STATE_TEMP = new Set(["temp_below_min", "temp_above_max"]);
-const violationIdx = (pred: (c: string) => boolean) =>
-  (shown.value?.violations ?? []).filter((v) => pred(v.constraint)).map((v) => v.step - shown.value!.step_start);
+const DIRECTION: Record<string, string> = { temp_below_min: "below", temp_above_max: "above", co2_above_max: "above" };
+const breachNote = (source: string, constraint: string, over: number) =>
+  constraint === "co2_above_max"
+    ? `${source} ${amount(over, 0)} ppm ${DIRECTION[constraint]} limit`
+    : `${source} ${amount(over, 2)} °C ${DIRECTION[constraint]} limit`;
+
+/** Line 0 of a climate panel is measured, line 1 the shown schedule's simulation. */
+function panelViolations(pred: (c: string) => boolean): ChartViolation[] {
+  const r = shown.value;
+  const start = series.value?.step_start ?? 0;
+  return [
+    ...measuredBreaches.value
+      .filter((v) => pred(v.constraint))
+      .map((v) => ({ index: v.step - start, line: 0, note: breachNote("Measured", v.constraint, v.over) })),
+    ...(r?.violations ?? [])
+      .filter((v) => pred(v.constraint))
+      .map((v) => ({
+        index: v.step - r!.step_start,
+        line: 1,
+        note: breachNote("Simulated", v.constraint, Math.abs((v.value as number) - (v.limit as number))),
+      })),
+  ];
+}
+
+const measuredSummary = computed(() => {
+  const dtMin = series.value?.dt_minutes ?? 15;
+  const worst = (pred: (c: string) => boolean) => {
+    const hits = measuredBreaches.value.filter((v) => pred(v.constraint));
+    return hits.length ? { hours: (hits.length * dtMin) / 60, over: Math.max(...hits.map((v) => v.over)) } : null;
+  };
+  return { temp: worst((c) => STATE_TEMP.has(c)), co2: worst((c) => c === "co2_above_max") };
+});
+
 const controlViolations = computed(
   () => (shown.value?.violations ?? []).filter((v) => !STATE_TEMP.has(v.constraint) && v.constraint !== "co2_above_max").length,
 );
@@ -152,18 +189,20 @@ const panels = computed<ChartPanel[]>(() => {
     {
       id: "temp", title: "Indoor temperature", unit: "°C", height: 130,
       lines: [
-        { label: `Simulated (${label(schedule.value)})`, color: C.temp, values: r.trace.temperature_c, kind: "state" },
+        { label: "Measured", color: C.temp, values: s.measured.temperature_c, kind: "state" },
+        { label: "Simulated", color: C.temp, values: r.trace.temperature_c, kind: "state", dashed: true },
       ],
       bands: [{ label: "Allowed", lower: s.bounds.temp_min_c, upper: s.bounds.temp_max_c }],
-      violations: violationIdx((c) => STATE_TEMP.has(c)),
+      violations: panelViolations((c) => STATE_TEMP.has(c)),
     },
     {
       id: "co2", title: "Indoor CO₂", unit: "ppm", height: 110,
       lines: [
-        { label: `Simulated (${label(schedule.value)})`, color: C.co2, values: r.trace.co2_ppm, kind: "state", digits: 0 },
+        { label: "Measured", color: C.co2, values: s.measured.co2_ppm, kind: "state", digits: 0 },
+        { label: "Simulated", color: C.co2, values: r.trace.co2_ppm, kind: "state", digits: 0, dashed: true },
       ],
       bands: [{ label: "Allowed", upper: s.bounds.co2_max_ppm }],
-      violations: violationIdx((c) => c === "co2_above_max"),
+      violations: panelViolations((c) => c === "co2_above_max"),
     },
   ];
 });
@@ -230,12 +269,19 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
         </table>
         <p class="small muted">Purchased energy at the spot price: fan power, heating ÷ boiler efficiency, cooling ÷ chiller COP.</p>
 
-        <p v-if="shown.feasible" class="ok">All comfort and equipment limits met.</p>
+        <p v-if="shown.feasible" class="ok">Plan: simulation stays within all comfort and equipment limits.</p>
         <p v-else class="error">
-          {{ shown.n_violations }} limit violation{{ shown.n_violations === 1 ? "" : "s" }}
-          <template v-if="controlViolations"> ({{ controlViolations }} equipment)</template>
-          — red dots in the chart.
+          Plan: {{ shown.n_violations }} limit violation{{ shown.n_violations === 1 ? "" : "s" }} in simulation
+          <template v-if="controlViolations"> ({{ controlViolations }} equipment, not marked in the chart)</template>.
         </p>
+        <div v-if="measuredSummary.temp || measuredSummary.co2" class="error measured-breach">
+          Sensors: comfort limits broken on this day, marked red in the chart.
+          <ul>
+            <li v-if="measuredSummary.temp">Temperature: {{ num(measuredSummary.temp.hours, 2) }} h, up to {{ amount(measuredSummary.temp.over, 2) }} °C past the limit</li>
+            <li v-if="measuredSummary.co2">CO₂: {{ num(measuredSummary.co2.hours, 2) }} h, up to {{ amount(measuredSummary.co2.over, 0) }} ppm past the limit</li>
+          </ul>
+        </div>
+        <p v-else class="ok">Sensors: measured climate stayed within limits.</p>
 
         <p v-if="baseline" class="compare">
           Baseline: {{ eur(baseline.cost_eur) }}<br />
@@ -254,6 +300,15 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
       <p v-else-if="loading" class="muted">Loading cost…</p>
     </section>
   </div>
+
+  <BreachList
+    v-if="!error && series?.schedules[schedule]"
+    :breaches="measuredBreaches"
+    :series="series"
+    :times="times"
+    :plan="series.schedules[schedule]"
+    :plan-label="label(schedule)"
+  />
 
   <MaintenancePanel v-if="hall" :hall-id="hallId" :date="date" :timezone="hall.timezone" />
 </template>
@@ -282,6 +337,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .cost-card tr.total th, .cost-card tr.total td:nth-child(2) { font-weight: 600; }
 .compare { border-top: 1px solid #eef0f3; padding-top: 10px; }
 .ok { color: #2b8a3e; }
+.measured-breach ul { margin: 4px 0 0; padding-left: 18px; }
 .small { font-size: 12px; }
 @media (max-width: 1000px) { .day-grid { grid-template-columns: 1fr; } }
 </style>
