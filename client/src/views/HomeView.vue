@@ -2,6 +2,8 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, type SiteDayCost } from "../api";
+import DayPicker from "../components/DayPicker.vue";
+import ShiftHours from "../components/ShiftHours.vue";
 import { useSitesStore } from "../stores/sites";
 
 const store = useSitesStore();
@@ -59,20 +61,14 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 <template>
   <h1>Sites</h1>
 
-  <label class="date-picker">
+  <div class="date-picker">
     Day
-    <input
-      type="date"
-      :value="date"
-      :min="store.firstDate ?? undefined"
-      :max="store.lastDate ?? undefined"
-      @change="date = ($event.target as HTMLInputElement).value"
-    />
+    <DayPicker v-if="store.days.length" v-model="date" :days="store.days" />
     <span class="muted">
       Energy cost of the optimized schedule
       <template v-if="store.firstDate">· data from {{ store.firstDate }} to {{ store.lastDate }}</template>
     </span>
-  </label>
+  </div>
 
   <p v-if="!store.loading && !store.error && !store.sites.length" class="muted">No sites.</p>
 
@@ -93,13 +89,17 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 
     <table>
       <thead>
-        <tr><th>Hall</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
+        <tr><th>Hall</th><th>Shift</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="hall in site.halls" :key="hall.id">
           <td>
             <RouterLink :to="{ name: 'hall', params: { hallId: hall.id } }">{{ hall.name }}</RouterLink>
             <div v-if="hall.notes" class="muted small">{{ hall.notes }}</div>
+          </td>
+          <td>
+            <ShiftHours v-if="hall.shifts?.length" :shifts="hall.shifts" />
+            <span v-else class="muted">–</span>
           </td>
           <template v-if="hallCost(site.id, hall.id)?.cost_eur != null">
             <td>{{ eur(hallCost(site.id, hall.id)!.cost_eur!) }}</td>
@@ -124,7 +124,6 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 
 <style scoped>
 .date-picker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.date-picker input { padding: 4px; font: inherit; }
 .site-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
 .site-head h2 { margin: 0 0 8px; }
 .site-total strong { font-size: 20px; }

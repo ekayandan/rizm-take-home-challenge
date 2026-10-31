@@ -67,6 +67,25 @@ test("lists sites with their halls", async () => {
   assert.equal(body.flatMap((s: any) => s.halls).length, 3);
 });
 
+test("site halls list their shifts, and the notes no longer repeat them", async () => {
+  const { body } = await get("/sites");
+  for (const hall of body.flatMap((s: any) => s.halls)) {
+    assert.deepEqual(hall.shifts, [
+      { weekdays: [0, 1, 2, 3, 4], start: "06:00", end: "14:00" },
+      { weekdays: [0, 1, 2, 3, 4], start: "14:00", end: "22:00" },
+    ]);
+    assert.doesNotMatch(hall.notes, /shift/i);
+  }
+});
+
+test("site halls list their days with step counts", async () => {
+  const { body } = await get("/sites");
+  for (const hall of body.flatMap((s: any) => s.halls)) {
+    assert.equal(hall.days.length, 30);
+    assert.deepEqual(hall.days.find((d: any) => d.date === "2026-10-25"), { date: "2026-10-25", steps: 100 });
+  }
+});
+
 test("hall detail covers 30 local days, the DST day has 100 steps", async () => {
   const { body } = await get("/halls/halle-3");
   assert.equal(body.days.length, 30);

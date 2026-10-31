@@ -10,6 +10,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
 import { useSitesStore } from "../stores/sites";
 import DayChart, { type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
+import DayPicker from "../components/DayPicker.vue";
 import MaintenancePanel from "../components/MaintenancePanel.vue";
 import BreachList from "../components/BreachList.vue";
 import { amount, num } from "../violations";
@@ -224,10 +225,7 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
   <div class="toolbar">
     <div class="day-nav">
       <button type="button" :disabled="!prevDay" aria-label="Previous day" @click="prevDay && goToDay(prevDay)">‹</button>
-      <select v-if="hall" :value="date" aria-label="Day" @change="goToDay(($event.target as HTMLSelectElement).value)">
-        <option v-if="dayIndex < 0" :value="date" disabled>{{ date }}</option>
-        <option v-for="d in hall.days" :key="d.date" :value="d.date">{{ d.date }}</option>
-      </select>
+      <DayPicker v-if="hall" :model-value="date" :days="hall.days" @update:model-value="goToDay" />
       <button type="button" :disabled="!nextDay" aria-label="Next day" @click="nextDay && goToDay(nextDay)">›</button>
     </div>
     <div class="segmented" role="radiogroup" aria-label="Schedule">
@@ -319,7 +317,6 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
 h1 { margin: 6px 0 12px; }
 .toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .day-nav { display: flex; align-items: center; gap: 4px; }
-.day-nav select { margin: 0; font: inherit; }
 button { font: inherit; padding: 4px 10px; border: 1px solid #c9ced4; background: #fff; border-radius: 6px; cursor: pointer; }
 button:disabled { opacity: 0.4; cursor: default; }
 .segmented { display: inline-flex; border: 1px solid #c9ced4; border-radius: 6px; overflow: hidden; }
