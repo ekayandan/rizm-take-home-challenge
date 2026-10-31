@@ -62,6 +62,7 @@ function siteWithHalls(db: DB, s: SiteRow) {
     ...hallSummary(h),
     ...dateRange(db, h.id),
     shifts: h.shifts_json ? JSON.parse(h.shifts_json) : null,
+    days: listDays(db, h.id).map(({ date, steps }) => ({ date, steps })),
   }));
   const firsts = halls.map((h) => h.first_date).filter((d): d is string => d !== null).sort();
   const lasts = halls.map((h) => h.last_date).filter((d): d is string => d !== null).sort();

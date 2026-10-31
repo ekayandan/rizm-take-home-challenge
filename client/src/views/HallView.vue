@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { api, type DayCost, type HallDetail } from "../api";
+import DayPicker from "../components/DayPicker.vue";
 
 const props = defineProps<{ hallId: string }>();
 
@@ -45,12 +46,8 @@ watch([() => props.hallId, date], async ([id, d]) => {
     <h1>{{ hall.name }}</h1>
     <p class="muted">{{ hall.notes }} · {{ hall.timezone }} · {{ hall.first_date }} – {{ hall.last_date }}</p>
 
-    <label>
-      Day
-      <select v-model="date">
-        <option v-for="d in hall.days" :key="d.date" :value="d.date">{{ d.date }} ({{ d.steps }} steps)</option>
-      </select>
-    </label>
+    Day
+    <DayPicker v-model="date" :days="hall.days" />
     <RouterLink v-if="date" class="day-link" :to="{ name: 'hall-day', params: { hallId: hall.id, date } }">
       Day chart for {{ date }} ›
     </RouterLink>
