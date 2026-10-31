@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import HomeView from "./views/HomeView.vue";
 import HallView from "./views/HallView.vue";
 import HallDayView from "./views/HallDayView.vue";
+import InterventionsView from "./views/InterventionsView.vue";
 import LoginView from "./views/LoginView.vue";
 import { useAuthStore } from "./stores/auth";
 
@@ -12,6 +13,7 @@ export const router = createRouter({
     { path: "/", name: "home", component: HomeView },
     { path: "/halls/:hallId", name: "hall", component: HallView, props: true },
     { path: "/halls/:hallId/days/:date", name: "hall-day", component: HallDayView, props: true },
+    { path: "/interventions", name: "interventions", component: InterventionsView },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
