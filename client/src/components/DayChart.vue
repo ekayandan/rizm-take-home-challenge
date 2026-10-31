@@ -26,6 +26,15 @@ export interface ChartBand {
   /** N+1 values; omitted = top of the panel. */
   upper?: number[];
 }
+/** A broken limit at a state point. */
+export interface ChartViolation {
+  /** State point index. */
+  index: number;
+  /** Index into the panel's lines of the line that broke the limit. */
+  line: number;
+  /** Shown while hovering, e.g. "Measured 1,20 °C above limit". */
+  note: string;
+}
 export interface ChartPanel {
   id: string;
   title: string;
@@ -35,8 +44,8 @@ export interface ChartPanel {
   bands?: ChartBand[];
   /** Force the y range to include these values (e.g. 0). */
   include?: number[];
-  /** Indices of state points to mark as constraint violations. */
-  violations?: number[];
+  /** Marked with a dot on the line and a shaded interval leading up to the state point. */
+  violations?: ChartViolation[];
 }
 
 const props = defineProps<{
@@ -74,6 +83,10 @@ function niceTicks(lo: number, hi: number, count = 4): number[] {
 
 const finite = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
 
+/** On narrow charts (the 1024 px tablet) the legend gets its own row under the title. */
+const LEGEND_ROW = 15;
+const stackedHeader = computed(() => width.value < 720);
+
 const layout = computed(() => {
   let top = 0;
   return props.panels.map((p) => {
@@ -88,9 +101,10 @@ const layout = computed(() => {
     const pad = (hi - lo) * 0.06;
     const ticks = niceTicks(lo - (lo === 0 ? 0 : pad), hi + pad, p.height >= 100 ? 5 : 3);
     const y0 = Math.min(ticks[0], lo), y1 = Math.max(ticks.at(-1)!, hi);
-    const t = top + M.top, h = p.height;
+    const header = M.top + (stackedHeader.value ? LEGEND_ROW : 0);
+    const t = top + header, h = p.height;
     const y = (v: number) => t + h - ((v - y0) / (y1 - y0 || 1)) * h;
-    top += M.top + h + M.bottom + GAP;
+    top += header + h + M.bottom + GAP;
     return { p, top: t, h, y, y0, y1, ticks };
   });
 });
@@ -169,6 +183,18 @@ function onMove(e: PointerEvent) {
   hover.value = Math.min(n.value - 1, Math.max(0, Math.floor(((px - M.left) / plotW.value) * n.value)));
 }
 
+/** Hovering a step shows the state at its end, so that is the violation to explain. */
+const hoverNotes = computed(() => {
+  const h = hover.value;
+  if (h === null) return [];
+  return props.panels.flatMap((p) => (p.violations ?? []).filter((v) => v.index === h + 1).map((v) => `${p.title}: ${v.note}`));
+});
+
+/** Intervals to shade: the step in which the state reached the violating point. */
+function violationSteps(p: ChartPanel): number[] {
+  return [...new Set((p.violations ?? []).map((v) => v.index - 1).filter((i) => i >= 0))];
+}
+
 function valueAt(l: ChartLine, i: number): string {
   const v = l.values[i];
   if (!finite(v)) return "–";
@@ -179,7 +205,10 @@ function valueAt(l: ChartLine, i: number): string {
 <template>
   <div ref="root" class="day-chart">
     <div class="readout" aria-live="polite">
-      <template v-if="hover !== null">{{ times[hover] }}–{{ times[hover + 1] }}</template>
+      <template v-if="hover !== null">
+        {{ times[hover] }}–{{ times[hover + 1] }}
+        <span v-for="note in hoverNotes" :key="note" class="note">· {{ note }}</span>
+      </template>
       <span v-else class="muted">Hover the chart for values</span>
     </div>
     <svg
@@ -192,7 +221,7 @@ function valueAt(l: ChartLine, i: number): string {
     >
       <g v-for="l in layout" :key="l.p.id">
         <!-- header: title, legend, hovered values -->
-        <text :x="M.left" :y="l.top - 8" class="title">{{ l.p.title }} <tspan class="unit">({{ l.p.unit }})</tspan></text>
+        <text :x="M.left" :y="l.top - 8 - (stackedHeader ? LEGEND_ROW : 0)" class="title">{{ l.p.title }} <tspan class="unit">({{ l.p.unit }})</tspan></text>
         <text :x="width - M.right" :y="l.top - 8" text-anchor="end" class="legend">
           <template v-for="line in l.p.lines" :key="line.label">
             <tspan :fill="line.color" dx="10">{{ line.dashed ? "┅" : "━" }}</tspan>
@@ -200,6 +229,9 @@ function valueAt(l: ChartLine, i: number): string {
           </template>
           <template v-for="b in l.p.bands ?? []" :key="b.label">
             <tspan class="band-key" dx="10">▮</tspan><tspan dx="3">{{ b.label }}</tspan>
+          </template>
+          <template v-if="l.p.violations?.length">
+            <tspan class="violation-key" dx="10">●</tspan><tspan dx="3">Limit broken</tspan>
           </template>
         </text>
 
@@ -209,6 +241,16 @@ function valueAt(l: ChartLine, i: number): string {
           <path v-if="b.lower" :d="boundPath(b.lower, l.y)" class="bound" />
           <path v-if="b.upper" :d="boundPath(b.upper, l.y)" class="bound" />
         </template>
+
+        <rect
+          v-for="i in violationSteps(l.p)"
+          :key="'vs' + i"
+          :x="x(i)"
+          :y="l.top"
+          :width="x(i + 1) - x(i)"
+          :height="l.h"
+          class="violation-span"
+        />
 
         <g class="grid">
           <line v-for="t in l.ticks" :key="t" :x1="M.left" :x2="width - M.right" :y1="l.y(t)" :y2="l.y(t)" />
@@ -224,11 +266,11 @@ function valueAt(l: ChartLine, i: number): string {
         </template>
 
         <g v-if="l.p.violations?.length" class="violations">
-          <template v-for="i in l.p.violations" :key="i">
+          <template v-for="v in l.p.violations" :key="`${v.line}-${v.index}`">
             <circle
-              v-if="finite(l.p.lines[0]?.values[i])"
-              :cx="x(i)"
-              :cy="l.y(l.p.lines[0].values[i] as number)"
+              v-if="finite(l.p.lines[v.line]?.values[v.index])"
+              :cx="x(v.index)"
+              :cy="l.y(l.p.lines[v.line].values[v.index] as number)"
               r="3"
             />
           </template>
@@ -249,7 +291,7 @@ function valueAt(l: ChartLine, i: number): string {
 <style scoped>
 .day-chart { width: 100%; min-width: 0; }
 svg { display: block; touch-action: pan-y; }
-.readout { font-size: 13px; height: 18px; font-variant-numeric: tabular-nums; }
+.readout { font-size: 13px; min-height: 18px; font-variant-numeric: tabular-nums; }
 .title { font-size: 13px; font-weight: 600; fill: var(--fg, #1d232a); }
 .unit, .legend, .tick { font-size: 11px; fill: #6a737d; font-variant-numeric: tabular-nums; }
 .legend { fill: #3b434c; }
@@ -261,6 +303,9 @@ svg { display: block; touch-action: pan-y; }
 .line { fill: none; stroke-width: 1.6; stroke-linejoin: round; }
 .line.dashed { stroke-width: 1.2; stroke-dasharray: 3 3; }
 .area { opacity: 0.12; }
-.violations circle { fill: #b42318; }
+.violations circle { fill: #b42318; stroke: #fff; stroke-width: 1; }
+.violation-span { fill: rgba(180, 35, 24, 0.14); }
+.violation-key { fill: #b42318; }
+.note { color: #b42318; margin-left: 6px; }
 .hover rect { fill: rgba(29, 35, 42, 0.08); pointer-events: none; }
 </style>
