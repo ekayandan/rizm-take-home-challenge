@@ -2,7 +2,7 @@
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
 /** Weekdays count from 0 = Monday; start and end are local wall-clock times. */
 export interface Shift { weekdays: number[]; start: string; end: string }
-export interface SiteHall extends HallSummary { first_date: string | null; last_date: string | null; shifts: Shift[] | null }
+export interface SiteHall extends HallSummary { first_date: string | null; last_date: string | null; shifts: Shift[] | null; days: { date: string; steps: number }[] }
 export interface Site {
   id: string;
   name: string;
@@ -12,6 +12,8 @@ export interface Site {
   last_date: string | null;
   halls: SiteHall[];
 }
+/** Steps in an ordinary day: 24 hours at 15 minutes. Clock-change days and gaps differ. */
+export const NORMAL_DAY_STEPS = 96;
 export interface Day { date: string; step_start: number; step_end: number; steps: number }
 export interface HallDetail extends HallSummary {
   start_utc: string;

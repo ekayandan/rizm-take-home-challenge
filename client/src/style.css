@@ -1,4 +1,4 @@
-:root { font-family: system-ui, sans-serif; color: #1d232a; background: #f5f6f8; }
+:root { --accent: #1d232a; font-family: system-ui, sans-serif; color: #1d232a; background: #f5f6f8; }
 body { margin: 0; }
 .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
 aside { background: #1d232a; color: #e8eaed; padding: 16px; }

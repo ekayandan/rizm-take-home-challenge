@@ -13,7 +13,7 @@
     "dev:web": "vite",
     "build": "vue-tsc --noEmit -p tsconfig.app.json && vite build",
     "typecheck": "tsc --noEmit -p tsconfig.server.json && vue-tsc --noEmit -p tsconfig.app.json",
-    "test": "node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning --test server/checker/checker.test.ts server/test/*.test.ts"
+    "test": "node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning --test server/checker/checker.test.ts server/test/*.test.ts && vitest run"
   },
   "dependencies": {
     "pinia": "^4.0.3",
@@ -23,10 +23,13 @@
   "devDependencies": {
     "@types/node": "^22.18.0",
     "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/test-utils": "^2.5.1",
     "concurrently": "^10.0.0",
+    "happy-dom": "^21.0.4",
     "tsx": "^4.20.0",
     "typescript": "~5.9.3",
     "vite": "^8.0.0",
+    "vitest": "^5.0.5",
     "vue-tsc": "^3.1.0"
   }
 }
