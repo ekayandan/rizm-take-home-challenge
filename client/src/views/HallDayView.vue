@@ -1,20 +1,19 @@
 <script setup lang="ts">
 /**
  * Hall day view: one hall, one local day. Chart of spot price, controls and the simulated
- * indoor climate of the selected schedule, with the schedule's cost for that day, and the
- * hall's maintenance windows (form to add one, list of all).
+ * indoor climate of the selected schedule, with the schedule's cost for that day. Maintenance has
+ * its own view; this one only says when saved windows change the plan.
  * URL: /halls/:hallId/days/:date?schedule=baseline|optimized
  */
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, ApiError, type DayCostTraced, type HallDetail, type Consequences, type HallSeries, type MeasuredViolation, type ProposedWindow } from "../api";
+import { api, ApiError, type DayCostTraced, type HallDetail, type Consequences, type HallSeries, type MeasuredViolation } from "../api";
 import { isValidDate, longDate, shortDate } from "../dates";
 import { useSitesStore } from "../stores/sites";
 import DayChart, { type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
 import DayPicker from "../components/DayPicker.vue";
-import MaintenancePanel from "../components/MaintenancePanel.vue";
+import HallTabs from "../components/HallTabs.vue";
 import BreachList from "../components/BreachList.vue";
-import ConsequencesSummary from "../components/ConsequencesSummary.vue";
 import TermHelp from "../components/TermHelp.vue";
 import { amount, missingReadingsNote, num, readingCoverage } from "../violations";
 
@@ -116,11 +115,8 @@ async function loadDay() {
   }
 }
 
-/** The windows in force against the plan, and the same with one proposed window on top. */
+/** The saved windows against the plan, only to say on this page that they change it. */
 const inForce = ref<Consequences | null>(null);
-const preview = ref<Consequences | null>(null);
-const proposed = ref<ProposedWindow | null>(null);
-const previewLoading = ref(false);
 const consequencesError = ref<string | null>(null);
 
 let inForceRequest = 0;
@@ -137,45 +133,11 @@ async function loadInForce() {
   }
 }
 
-let previewRequest = 0;
-async function runPreview(w: ProposedWindow) {
-  const req = ++previewRequest;
-  proposed.value = w;
-  preview.value = null;
-  previewLoading.value = true;
-  consequencesError.value = null;
-  try {
-    const r = await api.consequences(props.hallId, props.date, schedule.value, w);
-    if (req === previewRequest) preview.value = r;
-  } catch (e) {
-    if (req === previewRequest) consequencesError.value = (e as Error).message;
-  } finally {
-    if (req === previewRequest) previewLoading.value = false;
-  }
-}
-
-function clearPreview() {
-  previewRequest++;
-  proposed.value = null;
-  preview.value = null;
-  previewLoading.value = false;
-}
-
-function onSaved() {
-  clearPreview();
-  loadInForce();
-}
-
-/** Drawn over the plan: the preview if there is one, else the windows in force if they change this day. */
-const overlay = computed(() => preview.value ?? (inForce.value?.plan_changed ? inForce.value : null));
-const overlayLabel = computed(() => (preview.value ? "Preview" : "After maintenance"));
-const overlayColor = "#1d232a";
-
 const retry = () => (hall.value ? loadDay() : loadHall());
 
 watch(() => props.hallId, () => loadHall(), { immediate: true });
 watch([hall, () => props.date], loadDay, { immediate: true });
-watch([hall, () => props.date, schedule], () => { clearPreview(); loadInForce(); }, { immediate: true });
+watch([hall, () => props.date, schedule], loadInForce, { immediate: true });
 
 /** Nearest days with data, also from a day that has none. An invalid date only gets the first day. */
 const prevDay = computed(() => (validDate.value ? hall.value?.days.filter((d) => d.date < props.date).at(-1)?.date ?? null : null));
@@ -192,7 +154,7 @@ const breachNote = (source: string, constraint: string, over: number) =>
     ? `${source} ${amount(over, 0)} ppm ${DIRECTION[constraint]} limit`
     : `${source} ${amount(over, 2)} °C ${DIRECTION[constraint]} limit`;
 
-/** Line 0 of a climate panel is measured, line 1 the shown schedule's simulation, line 2 the overlay. */
+/** Line 0 of a climate panel is measured, line 1 the shown schedule's simulation. */
 function panelViolations(pred: (c: string) => boolean): ChartViolation[] {
   const r = shown.value;
   const start = series.value?.step_start ?? 0;
@@ -206,13 +168,6 @@ function panelViolations(pred: (c: string) => boolean): ChartViolation[] {
         index: v.step - r!.step_start,
         line: 1,
         note: breachNote("Simulated", v.constraint, Math.abs((v.value as number) - (v.limit as number))),
-      })),
-    ...(overlay.value?.after_day.violations ?? [])
-      .filter((v) => pred(v.constraint))
-      .map((v) => ({
-        index: v.step - overlay.value!.after_day.step_start,
-        line: 2,
-        note: breachNote(overlayLabel.value, v.constraint, Math.abs((v.value as number) - (v.limit as number))),
       })),
   ];
 }
@@ -257,9 +212,6 @@ const panels = computed<ChartPanel[]>(() => {
   const sc = s?.schedules[schedule.value];
   if (!s || !r || !sc) return [];
   const h = hall.value;
-  const o = overlay.value;
-  const after = (values: (number | null)[], kind: "step" | "state", digits?: number) =>
-    o ? [{ label: overlayLabel.value, color: overlayColor, values, kind, dashed: true, digits }] : [];
   return [
     {
       id: "price", title: "Spot price", term: "spotPrice", unit: "€/MWh", height: 90,
@@ -268,7 +220,7 @@ const panels = computed<ChartPanel[]>(() => {
     },
     {
       id: "flow", title: "Fan mass flow", term: "massFlow", unit: "kg/s", height: 80,
-      lines: [{ label: "Mass flow", color: C.flow, values: sc.mass_flow_kg_per_s, kind: "step", area: true, digits: 2 }, ...after(o?.after_controls.mass_flow_kg_per_s ?? [], "step", 2)],
+      lines: [{ label: "Mass flow", color: C.flow, values: sc.mass_flow_kg_per_s, kind: "step", area: true, digits: 2 }],
       include: [0, ...(h?.hvac.max_mass_flow_kg_per_s ? [h.hvac.max_mass_flow_kg_per_s] : [])],
     },
     {
@@ -281,7 +233,6 @@ const panels = computed<ChartPanel[]>(() => {
       lines: [
         { label: "Heating", color: C.heat, values: sc.heating_kw, kind: "step", area: true },
         { label: "Cooling", color: C.cool, values: sc.cooling_kw, kind: "step", area: true },
-        ...after(o?.after_controls.heating_kw.map((v, i) => v + (o.after_controls.cooling_kw[i] ?? 0)) ?? [], "step"),
       ],
       include: [0],
     },
@@ -290,7 +241,6 @@ const panels = computed<ChartPanel[]>(() => {
       lines: [
         { label: "Measured", color: C.temp, values: s.measured.temperature_c, kind: "state" },
         { label: "Simulated", color: C.temp, values: r.trace.temperature_c, kind: "state", dashed: true },
-        ...after(o?.after_day.trace.temperature_c ?? [], "state"),
       ],
       bands: [{ label: "Allowed", lower: s.bounds.temp_min_c, upper: s.bounds.temp_max_c }],
       violations: panelViolations((c) => STATE_TEMP.has(c)),
@@ -300,7 +250,6 @@ const panels = computed<ChartPanel[]>(() => {
       lines: [
         { label: "Measured", color: C.co2, values: s.measured.co2_ppm, kind: "state", digits: 0 },
         { label: "Simulated", color: C.co2, values: r.trace.co2_ppm, kind: "state", digits: 0, dashed: true },
-        ...after(o?.after_day.trace.co2_ppm ?? [], "state", 0),
       ],
       bands: [{ label: "Allowed", upper: s.bounds.co2_max_ppm }],
       violations: panelViolations((c) => c === "co2_above_max"),
@@ -326,6 +275,8 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
   </nav>
   <h1>{{ hallName }} <span class="muted">· {{ date }}</span></h1>
 
+  <HallTabs :hall-id="hallId" :date="date" />
+
   <div class="toolbar">
     <div class="day-nav">
       <button type="button" :disabled="!prevDay" aria-label="Previous day" @click="prevDay && goToDay(prevDay)">‹</button>
@@ -343,7 +294,6 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
         @click="schedule = s"
       >{{ label(s) }}</button>
     </div>
-    <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
     <TermHelp term="schedule" class="schedule-help" />
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>
@@ -361,6 +311,13 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     </template>
   </p>
   <p v-else-if="hall && !schedules.length" class="muted">This hall has no schedules, so there is no plan or cost to show.</p>
+
+  <p v-if="!error && !dayNotice && inForce?.plan_changed" class="maintenance-note" role="status">
+    <template v-if="inForce.still_feasible">Saved maintenance changes this plan, but it still keeps all limits in simulation.</template>
+    <template v-else>Saved maintenance: worst case {{ inForce.new_violations_total }} new limit violation{{ inForce.new_violations_total === 1 ? "" : "s" }} if nothing is re-planned.</template>
+    This chart shows the plan without it.
+    <RouterLink :to="{ name: 'hall-maintenance', params: { hallId }, query: { ...route.query, date } }">See the comparison</RouterLink>
+  </p>
 
   <div v-if="!error && !dayNotice && !(hall && !schedules.length)" class="day-grid">
     <section class="card chart-card">
@@ -417,9 +374,6 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     </section>
   </div>
 
-  <section v-if="!error && !dayNotice && inForce?.windows.length" class="card" aria-label="Consequences of the windows in force">
-    <ConsequencesSummary :report="inForce" title="Maintenance in force" />
-  </section>
   <p v-if="consequencesError" class="error">{{ consequencesError }}</p>
 
   <BreachList
@@ -431,22 +385,6 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     :plan-label="label(schedule)"
   />
 
-  <MaintenancePanel
-    v-if="hall && validDate"
-    :hall-id="hallId"
-    :date="date"
-    :timezone="hall.timezone"
-    @preview="runPreview"
-    @preview-clear="clearPreview"
-    @saved="onSaved"
-  >
-    <template #preview>
-      <p v-if="previewLoading" class="muted small" role="status">Simulating…</p>
-      <div v-else-if="preview" class="preview-result">
-        <ConsequencesSummary :report="preview" title="Preview, not saved" />
-      </div>
-    </template>
-  </MaintenancePanel>
   </template>
 </template>
 
@@ -474,7 +412,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .cost-card tr.total th, .cost-card tr.total td:nth-child(2) { font-weight: 600; }
 .compare { border-top: 1px solid #eef0f3; padding-top: 10px; }
 .ok { color: #2b8a3e; }
-.preview-result { margin: 12px 0; padding: 12px; border: 1px dashed #c9ced4; border-radius: 6px; }
+.maintenance-note { margin: 16px 0 0; padding: 8px 12px; background: #fff8e1; border-radius: 6px; }
 .day-notice { margin: 16px 0; }
 .near-day { margin-left: 8px; }
 .measured-breach ul { margin: 4px 0 0; padding-left: 18px; }

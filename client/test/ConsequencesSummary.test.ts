@@ -8,7 +8,6 @@ const report = (over: Partial<Consequences>) => ({
   windows: [{ asset: "boiler", start_utc: "a", end_utc: "b" }],
   blocked_steps: 32, changed_steps: 10, plan_changed: true, still_feasible: true,
   new_violations: [], new_violations_total: 0, new_violations_on_day: 0,
-  cost_change_on_day_eur: -5, cost_change_total_eur: -5,
   ...over,
 }) as Consequences;
 const text = (r: Consequences) => mount(ConsequencesSummary, { props: { report: r, title: "T" } }).text();
@@ -24,8 +23,10 @@ test("a broken plan leads with feasibility and lists what broke", () => {
   expect(t).toContain("2 h");
 });
 
-test("a lower cost is never called a saving", () => {
-  expect(text(report({}))).toContain("This is not a saving");
+test("expected violations are stated as a worst case, and no cost is shown", () => {
+  const t = text(report({ still_feasible: false, new_violations_total: 1, new_violations_on_day: 1 }));
+  expect(t).toContain("Worst case if nothing is re-planned");
+  expect(t).not.toMatch(/cost|€|saving/i);
 });
 
 test("equipment the plan doesn't use is said to have no effect", () => {

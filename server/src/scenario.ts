@@ -36,9 +36,6 @@ export interface Consequences {
   new_violations: NewViolationGroup[];
   new_violations_total: number;
   new_violations_on_day: number;
-  /** Blocked plan minus stored plan; never positive, as blocking only removes power. */
-  cost_change_on_day_eur: number;
-  cost_change_total_eur: number;
   /** Both reports are traced, and the day's controls of the blocked plan are included for the chart. */
   plan_day: DayCost;
   after_day: DayCost;
@@ -154,8 +151,6 @@ export function consequences(db: DB, hallId: string, scheduleName: string, date:
     new_violations: groupViolations(found, rows),
     new_violations_total: found.length,
     new_violations_on_day: newViolations(planDay.violations, afterDay.violations).length,
-    cost_change_on_day_eur: afterDay.cost_eur - planDay.cost_eur,
-    cost_change_total_eur: afterFull.cost_eur - planFull.cost_eur,
     plan_day: planDay,
     after_day: afterDay,
     after_controls: sliceControls(after, afterDay.step_start, afterDay.step_end),

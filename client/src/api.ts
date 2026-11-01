@@ -77,8 +77,6 @@ export interface Consequences {
   new_violations: NewViolationGroup[];
   new_violations_total: number;
   new_violations_on_day: number;
-  cost_change_on_day_eur: number;
-  cost_change_total_eur: number;
   plan_day: DayCostTraced;
   after_day: DayCostTraced;
   after_controls: ScheduleSeries;

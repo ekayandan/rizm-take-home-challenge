@@ -76,7 +76,8 @@ async function load(): Promise<boolean> {
   }
 }
 
-watch(() => props.date, () => { resetTimes(); clearMessages(); }, { immediate: true });
+// A preview moves the shown day to its window's start; that must not wipe the times it came from.
+watch(() => props.date, (d) => { if (form.start.slice(0, 10) !== d) { resetTimes(); clearMessages(); } }, { immediate: true });
 watch(() => props.hallId, () => { windows.value = []; clearMessages(); load(); restoreDraft(); }, { immediate: true });
 
 /** Both fields hold "YYYY-MM-DDTHH:MM" in the same timezone, so text order is time order. */

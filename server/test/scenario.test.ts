@@ -92,18 +92,11 @@ test("a preview matches simulate() on the raw file and saves nothing", async () 
   const tsUtc = Array.from({ length: hall.horizon.steps }, (_, k) => new Date(Date.parse((hall as any).start_utc) + k * 900_000).toISOString());
   const after = applyMaintenance(hall.schedules.optimized, tsUtc, hall.horizon.dt_hours, [win("boiler", "2026-10-12T04:00:00.000Z", "2026-10-12T12:00:00.000Z")]);
   const planReport = simulate(hall, hall.schedules.optimized), afterReport = simulate(hall, after);
-  assert.ok(Math.abs(r.body.cost_change_total_eur - (afterReport.cost_eur - planReport.cost_eur)) < 1e-6);
   assert.equal(r.body.new_violations_total, newViolations(planReport.violations, afterReport.violations).length);
   assert.equal(r.body.still_feasible, r.body.new_violations_total === 0);
 
   assert.deepEqual((await get("/halls/halle-7/maintenance")).body, before.body);
   assert.ok(Math.abs((await get("/halls/halle-7/cost?date=2026-10-12&schedule=optimized")).body.schedules.optimized.cost_eur - r.body.plan_day.cost_eur) < 1e-9);
-});
-
-test("blocking can only lower the cost, so the drop isn't reported as a rise", async () => {
-  const r = await get(PREVIEW);
-  assert.ok(r.body.cost_change_total_eur <= 0);
-  assert.ok(r.body.cost_change_on_day_eur <= 0);
 });
 
 test("a window before the shown day still changes that day's starting state", async () => {
@@ -116,7 +109,6 @@ test("a window outside the data period changes nothing", async () => {
   const r = await get("/halls/halle-7/consequences?date=2026-10-12&asset=boiler&start=2027-01-01T06:00&end=2027-01-01T14:00");
   assert.equal(r.body.plan_changed, false);
   assert.equal(r.body.still_feasible, true);
-  assert.equal(r.body.cost_change_total_eur, 0);
 });
 
 test("preview input is checked", async () => {

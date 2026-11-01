@@ -7,6 +7,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
+import HallTabs from "../components/HallTabs.vue";
 import DayChart, { type ChartDay, type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
 import { perfLog, timed } from "../perf";
 
@@ -166,6 +167,7 @@ const panels = computed<ChartPanel[]>(() => {
     <span>Week</span>
   </nav>
   <h1>{{ hall?.name ?? hallId }} <span v-if="weekDates.length" class="muted">· {{ weekDates[0] }} – {{ weekDates.at(-1) }}</span></h1>
+  <HallTabs :hall-id="hallId" :date="date" />
 
   <p v-if="error" class="error">{{ error }}</p>
   <div v-else class="week-grid">
