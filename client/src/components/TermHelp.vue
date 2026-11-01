@@ -131,34 +131,40 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .term-help { white-space: normal; }
-/* A 16 px circle in a 24 px target, so it can be hit on the tablet; the margin keeps rows from growing. */
+/* A circle as tall as the surrounding font in a 24 px target, so it can still be hit on the tablet; the negative margins keep the target from pushing text and rows apart. */
 .term-help-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  margin: -4px 0;
+  margin: -6px -4px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: none;
+  font-size: inherit;
   vertical-align: middle;
   cursor: help;
 }
+/* 1.4em of a 0.7em font is 1em of the surrounding font. */
 .term-help-button span {
   box-sizing: border-box;
-  width: 16px;
-  height: 16px;
+  width: 1.4em;
+  height: 1.4em;
   border: 1px solid #8a939c;
   border-radius: 50%;
   background: #fff;
   color: #4a535c;
-  font: 600 11px/14px system-ui, sans-serif;
+  font-family: system-ui, sans-serif;
+  font-size: 0.7em;
+  font-weight: 600;
+  line-height: calc(1.4em - 2px);
   text-align: center;
 }
 .term-help-button:hover span, .term-help-button[aria-expanded="true"] span { border-color: #1d232a; background: #eef0f3; color: #1d232a; }
-.term-help-button:focus-visible { outline: 2px solid #1c7ed6; outline-offset: -2px; }
+.term-help-button:focus-visible { outline: none; }
+.term-help-button:focus-visible span { outline: 2px solid #1c7ed6; outline-offset: 1px; }
 .term-help-tip {
   position: fixed;
   z-index: 100;

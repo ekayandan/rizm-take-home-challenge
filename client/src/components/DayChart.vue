@@ -40,7 +40,7 @@ export interface ChartViolation {
 export interface ChartPanel {
   id: string;
   title: string;
-  /** Explained by a "?" in the left margin, level with the title. */
+  /** Explained by a "?" to the right of the title. */
   term?: GlossaryTerm;
   unit: string;
   height: number;
@@ -216,15 +216,16 @@ function valueAt(l: ChartLine, i: number): string {
       <span v-else class="muted">Hover the chart for values</span>
     </div>
     <div class="plot">
-    <!-- Outside the svg: role="img" hides its children from screen readers. -->
-    <template v-for="l in layout" :key="l.p.id">
-      <TermHelp
-        v-if="l.p.term"
-        class="panel-help"
-        :term="l.p.term"
-        :style="{ top: `${l.top - 8 - (stackedHeader ? LEGEND_ROW : 0) - 16}px`, left: `${M.left - 26}px` }"
-      />
-    </template>
+    <!-- Titles sit outside the svg: role="img" hides its children from screen readers, and the "?" has to follow the title's width. -->
+    <div
+      v-for="l in layout"
+      :key="l.p.id"
+      class="panel-title"
+      :style="{ top: `${l.top - 8 - (stackedHeader ? LEGEND_ROW : 0) - 13}px`, left: `${M.left}px` }"
+    >
+      {{ l.p.title }} <span class="unit">({{ l.p.unit }})</span>
+      <TermHelp v-if="l.p.term" :term="l.p.term" />
+    </div>
     <svg
       :width="width"
       :height="height"
@@ -234,8 +235,7 @@ function valueAt(l: ChartLine, i: number): string {
       @pointerleave="hover = null"
     >
       <g v-for="l in layout" :key="l.p.id">
-        <!-- header: title, legend, hovered values -->
-        <text :x="M.left" :y="l.top - 8 - (stackedHeader ? LEGEND_ROW : 0)" class="title">{{ l.p.title }} <tspan class="unit">({{ l.p.unit }})</tspan></text>
+        <!-- header: legend, hovered values -->
         <text :x="width - M.right" :y="l.top - 8" text-anchor="end" class="legend">
           <template v-for="line in l.p.lines" :key="line.label">
             <tspan :fill="line.color" dx="10">{{ line.dashed ? "┅" : "━" }}</tspan>
@@ -306,11 +306,13 @@ function valueAt(l: ChartLine, i: number): string {
 <style scoped>
 .day-chart { width: 100%; min-width: 0; }
 .plot { position: relative; }
-.panel-help { position: absolute; z-index: 1; }
+/* Only the "?" takes the pointer, so hovering across a title still drives the chart readout. */
+.panel-title { position: absolute; z-index: 1; font-size: 13px; line-height: 16px; font-weight: 600; color: var(--fg, #1d232a); white-space: nowrap; pointer-events: none; }
+.panel-title :deep(button) { pointer-events: auto; }
+.panel-title .unit { font-size: 11px; font-weight: 400; color: #6a737d; }
 svg { display: block; touch-action: pan-y; }
 .readout { font-size: 13px; min-height: 18px; font-variant-numeric: tabular-nums; }
-.title { font-size: 13px; font-weight: 600; fill: var(--fg, #1d232a); }
-.unit, .legend, .tick { font-size: 11px; fill: #6a737d; font-variant-numeric: tabular-nums; }
+.legend, .tick { font-size: 11px; fill: #6a737d; font-variant-numeric: tabular-nums; }
 .legend { fill: #3b434c; }
 .band-key { fill: rgba(47, 158, 68, 0.35); }
 .plot-bg { fill: #fafbfc; }
