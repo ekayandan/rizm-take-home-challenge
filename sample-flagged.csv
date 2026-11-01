@@ -1,0 +1,38 @@
+﻿Weekly report;Nordwerk Stade
+Week;2026-10-26;2026-11-01
+Note;Savings are overstated: with the interventions applied, the plan breaks limits it otherwise keeps for 142.5 hall-hours.
+Note;Cost after interventions is the optimized plan with the maintenance windows now in force applied and nothing else re-planned. Blocking equipment lowers this cost by not running it, so that drop is not a saving in itself.
+Note;"Hours out of bounds come from measured temperature and CO2; an interval counts once however many limits it breaks. Site totals add up the halls' hours."
+Note;Figures use the windows in force when the report is generated.
+
+Site summary
+Hall;Baseline cost (EUR);Optimized cost (EUR);Post-intervention cost (EUR);Savings (EUR);Hours out of bounds;Hours covered;Hours without price;Interventions;Hours of new plan limit breaks after interventions
+Halle 3 Montage;82,46;35,96;35,96;46,50;1,50;168,00;0,00;0;0,00
+Halle 7 Endmontage;2844,81;1513,39;574,68;2270,13;16,25;168,00;0,00;1;142,50
+Total;2927,27;1549,34;610,64;2316,63;17,75;336,00;0,00;1;142,50
+
+Most expensive intervals
+Rank;Hall;Date;Time;Price (EUR/MWh);Post-intervention cost (EUR)
+1;Halle 7 Endmontage;2026-10-30;07:45;141,11;11,10
+2;Halle 7 Endmontage;2026-10-30;04:30;72,66;9,80
+3;Halle 7 Endmontage;2026-10-30;04:45;72,66;9,58
+
+Hall;Halle 3 Montage
+Baseline cost (EUR);Optimized cost (EUR);Post-intervention cost (EUR);Savings (EUR);Hours out of bounds;Hours covered;Hours without price;Interventions;Hours of new plan limit breaks after interventions
+82,46;35,96;35,96;46,50;1,50;168,00;0,00;0;0,00
+
+Most expensive intervals
+Rank;Hall;Date;Time;Price (EUR/MWh);Post-intervention cost (EUR)
+1;Halle 3 Montage;2026-10-26;05:00;48,50;3,00
+2;Halle 3 Montage;2026-10-26;05:15;48,50;2,98
+3;Halle 3 Montage;2026-10-26;05:30;48,50;2,96
+
+Hall;Halle 7 Endmontage
+Baseline cost (EUR);Optimized cost (EUR);Post-intervention cost (EUR);Savings (EUR);Hours out of bounds;Hours covered;Hours without price;Interventions;Hours of new plan limit breaks after interventions
+2844,81;1513,39;574,68;2270,13;16,25;168,00;0,00;1;142,50
+
+Most expensive intervals
+Rank;Hall;Date;Time;Price (EUR/MWh);Post-intervention cost (EUR)
+1;Halle 7 Endmontage;2026-10-30;07:45;141,11;11,10
+2;Halle 7 Endmontage;2026-10-30;04:30;72,66;9,80
+3;Halle 7 Endmontage;2026-10-30;04:45;72,66;9,58
