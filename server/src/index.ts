@@ -11,7 +11,7 @@ const getDb = (): DB => (db ??= openDb(DB_PATH));
 try {
   getDb();
 } catch (err) {
-  console.warn(`[api] ${(err as Error).message}; requests will fail with 503 until it exists`);
+  console.warn(`[api] ${(err as Error).message}; requests will answer 503 until the database can be used`);
 }
 
 const server = createServer(createHandler(getDb));
