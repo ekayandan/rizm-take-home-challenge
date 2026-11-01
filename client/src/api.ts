@@ -125,12 +125,30 @@ export interface MaintenanceWindow {
   /** Hall-local wall-clock time with offset, e.g. 2026-10-06T08:00+02:00. */
   start_local: string;
   end_local: string;
-  created_by: string | null;
-  created_by_name: string | null;
+  reason: string;
+  created_by: string;
+  created_by_name: string;
   created_at: string;
 }
 /** start and end are hall-local wall-clock times, YYYY-MM-DDTHH:MM. */
-export interface NewMaintenanceWindow { asset: Asset; start: string; end: string }
+export interface NewMaintenanceWindow { asset: Asset; start: string; end: string; reason: string }
+/** One entry of the history. Instants are UTC; timezone is the hall's. */
+export interface Intervention {
+  id: number;
+  type: string;
+  site_name: string;
+  hall_name: string;
+  timezone: string;
+  reason: string;
+  created_by_name: string;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_by_name: string | null;
+  revoke_reason: string | null;
+  asset: Asset;
+  start_utc: string;
+  end_utc: string;
+}
 
 export type Role = "admin" | "operator" | "viewer";
 export interface User { id: string; name: string; email: string; role: Role; sites: string[] }
@@ -205,6 +223,7 @@ export const api = {
   maintenance: (id: string) => get<MaintenanceWindow[]>(`/halls/${encodeURIComponent(id)}/maintenance`),
   addMaintenance: (id: string, w: NewMaintenanceWindow) =>
     post<MaintenanceWindow>(`/halls/${encodeURIComponent(id)}/maintenance`, w),
+  interventions: () => get<Intervention[]>("/interventions"),
   siteDayCost: (id: string, date: string) =>
     get<SiteDayCost>(`/sites/${encodeURIComponent(id)}/cost?date=${date}&schedule=optimized`),
 };

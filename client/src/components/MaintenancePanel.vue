@@ -7,6 +7,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { api, ASSETS, type Asset, type MaintenanceWindow } from "../api";
 import { useAuthStore } from "../stores/auth";
+import TermHelp from "./TermHelp.vue";
 
 const props = defineProps<{ hallId: string; date: string; timezone: string }>();
 const auth = useAuthStore();
@@ -19,7 +20,7 @@ const loadError = ref<string | null>(null);
 
 const canEdit = computed(() => auth.user?.role === "admin" || auth.user?.role === "operator");
 
-const form = reactive({ asset: "fan" as Asset, start: "", end: "" });
+const form = reactive({ asset: "fan" as Asset, start: "", end: "", reason: "" });
 const saving = ref(false);
 const submitError = ref<string | null>(null);
 const saved = ref<number | null>(null);
@@ -49,7 +50,7 @@ watch(() => props.date, () => { resetTimes(); submitError.value = null; saved.va
 
 /** Both fields hold "YYYY-MM-DDTHH:MM" in the same timezone, so text order is time order. */
 const rangeError = computed(() => (form.start && form.end && form.end <= form.start ? "End must be after start." : null));
-const canSubmit = computed(() => !!form.start && !!form.end && !rangeError.value && !saving.value);
+const canSubmit = computed(() => !!form.start && !!form.end && !!form.reason.trim() && !rangeError.value && !saving.value);
 
 async function submit() {
   submitError.value = null;
@@ -57,8 +58,9 @@ async function submit() {
   if (!canSubmit.value) return;
   saving.value = true;
   try {
-    const w = await api.addMaintenance(props.hallId, { asset: form.asset, start: form.start, end: form.end });
+    const w = await api.addMaintenance(props.hallId, { asset: form.asset, start: form.start, end: form.end, reason: form.reason });
     saved.value = w.id;
+    form.reason = "";
     await load();
   } catch (e) {
     submitError.value = (e as Error).message;
@@ -84,7 +86,7 @@ const onShownDay = (w: MaintenanceWindow) =>
 
 <template>
   <section class="card maintenance" aria-labelledby="maintenance-title">
-    <h2 id="maintenance-title">Maintenance windows</h2>
+    <h2 id="maintenance-title">Maintenance windows<TermHelp term="maintenanceWindow" /></h2>
     <p class="muted small">Times are local to the hall ({{ timezone }}).</p>
 
     <form v-if="canEdit" class="mw-form" novalidate @submit.prevent="submit">
@@ -102,6 +104,10 @@ const onShownDay = (w: MaintenanceWindow) =>
         End
         <input v-model="form.end" type="datetime-local" name="end" required :aria-invalid="!!rangeError" />
       </label>
+      <label class="reason">
+        Reason
+        <input v-model="form.reason" type="text" name="reason" required maxlength="500" placeholder="Why is this needed?" />
+      </label>
       <button type="submit" class="primary" :disabled="!canSubmit">{{ saving ? "Saving…" : "Add window" }}</button>
     </form>
     <p v-else class="muted small">Only operators and admins can add maintenance windows.</p>
@@ -113,7 +119,7 @@ const onShownDay = (w: MaintenanceWindow) =>
     <p v-else-if="!windows.length" class="muted">No maintenance windows recorded for this hall.</p>
     <table v-else>
       <thead>
-        <tr><th>Asset</th><th>Start</th><th>End</th><th>Duration</th><th>Added by</th></tr>
+        <tr><th>Asset</th><th>Start</th><th>End</th><th>Duration</th><th>Reason</th><th>Added by</th></tr>
       </thead>
       <tbody>
         <tr v-for="w in windows" :key="w.id" :class="{ today: onShownDay(w), fresh: w.id === saved }">
@@ -121,7 +127,8 @@ const onShownDay = (w: MaintenanceWindow) =>
           <td>{{ fmt(w.start_local) }} <span class="muted small">{{ offset(w.start_local) }}</span></td>
           <td>{{ fmt(w.end_local) }} <span class="muted small">{{ offset(w.end_local) }}</span></td>
           <td>{{ duration(w) }}</td>
-          <td class="muted">{{ w.created_by_name ?? "—" }}</td>
+          <td>{{ w.reason }}</td>
+          <td class="muted">{{ w.created_by_name }}</td>
         </tr>
       </tbody>
     </table>
@@ -135,6 +142,7 @@ const onShownDay = (w: MaintenanceWindow) =>
 .mw-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4a535c; }
 .mw-form select, .mw-form input { margin: 0; font: inherit; padding: 4px 6px; border: 1px solid #c9ced4; border-radius: 6px; background: #fff; }
 .mw-form input[aria-invalid="true"] { border-color: #b42318; }
+.mw-form .reason { flex: 1 1 220px; }
 button.primary { font: inherit; padding: 5px 14px; border: 1px solid #1d232a; background: #1d232a; color: #fff; border-radius: 6px; cursor: pointer; }
 button.primary:disabled { opacity: 0.4; cursor: default; }
 table { margin-top: 12px; }

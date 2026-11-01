@@ -13,6 +13,7 @@ import DayChart, { type ChartPanel, type ChartViolation } from "../components/Da
 import DayPicker from "../components/DayPicker.vue";
 import MaintenancePanel from "../components/MaintenancePanel.vue";
 import BreachList from "../components/BreachList.vue";
+import TermHelp from "../components/TermHelp.vue";
 import { amount, num } from "../violations";
 
 const props = defineProps<{ hallId: string; date: string }>();
@@ -165,22 +166,22 @@ const panels = computed<ChartPanel[]>(() => {
   const h = hall.value;
   return [
     {
-      id: "price", title: "Spot price", unit: "€/MWh", height: 90,
+      id: "price", title: "Spot price", term: "spotPrice", unit: "€/MWh", height: 90,
       lines: [{ label: "Price", color: C.price, values: s.series.price_eur_per_mwh, kind: "step", digits: 2 }],
       include: [0],
     },
     {
-      id: "flow", title: "Fan mass flow", unit: "kg/s", height: 80,
+      id: "flow", title: "Fan mass flow", term: "massFlow", unit: "kg/s", height: 80,
       lines: [{ label: "Mass flow", color: C.flow, values: sc.mass_flow_kg_per_s, kind: "step", area: true, digits: 2 }],
       include: [0, ...(h?.hvac.max_mass_flow_kg_per_s ? [h.hvac.max_mass_flow_kg_per_s] : [])],
     },
     {
-      id: "recirc", title: "Recirculation", unit: "share of supply air", height: 70,
+      id: "recirc", title: "Recirculation", term: "recirculation", unit: "share of supply air", height: 70,
       lines: [{ label: "Recirculation", color: C.recirc, values: sc.recirculation, kind: "step", area: true, digits: 2 }],
       include: [0, h?.hvac.max_recirculation ?? 1],
     },
     {
-      id: "power", title: "Heating and cooling", unit: "kW thermal", height: 100,
+      id: "power", title: "Heating and cooling", term: "thermalPower", unit: "kW thermal", height: 100,
       lines: [
         { label: "Heating", color: C.heat, values: sc.heating_kw, kind: "step", area: true },
         { label: "Cooling", color: C.cool, values: sc.cooling_kw, kind: "step", area: true },
@@ -188,7 +189,7 @@ const panels = computed<ChartPanel[]>(() => {
       include: [0],
     },
     {
-      id: "temp", title: "Indoor temperature", unit: "°C", height: 130,
+      id: "temp", title: "Indoor temperature", term: "temperature", unit: "°C", height: 130,
       lines: [
         { label: "Measured", color: C.temp, values: s.measured.temperature_c, kind: "state" },
         { label: "Simulated", color: C.temp, values: r.trace.temperature_c, kind: "state", dashed: true },
@@ -197,7 +198,7 @@ const panels = computed<ChartPanel[]>(() => {
       violations: panelViolations((c) => STATE_TEMP.has(c)),
     },
     {
-      id: "co2", title: "Indoor CO₂", unit: "ppm", height: 110,
+      id: "co2", title: "Indoor CO₂", term: "co2", unit: "ppm", height: 110,
       lines: [
         { label: "Measured", color: C.co2, values: s.measured.co2_ppm, kind: "state", digits: 0 },
         { label: "Simulated", color: C.co2, values: r.trace.co2_ppm, kind: "state", digits: 0, dashed: true },
@@ -240,6 +241,7 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
       >{{ label(s) }}</button>
     </div>
     <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
+    <TermHelp term="schedule" class="schedule-help" />
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>
 
@@ -266,7 +268,7 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
             <tr class="total"><th>Total</th><td>{{ eur(shown.cost_eur) }}</td><td class="muted">{{ kwh(shown.energy_kwh.total) }}</td></tr>
           </tbody>
         </table>
-        <p class="small muted">Purchased energy at the spot price: fan power, heating ÷ boiler efficiency, cooling ÷ chiller COP.</p>
+        <p class="small muted">Purchased energy at the spot price: fan power, heating ÷ boiler efficiency, cooling ÷ chiller COP.<TermHelp term="efficiency" /></p>
 
         <p v-if="shown.feasible" class="ok">Plan: simulation stays within all comfort and equipment limits.</p>
         <p v-else class="error">
@@ -324,6 +326,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .segmented button { border: 0; border-radius: 0; padding: 5px 14px; }
 .segmented button + button { border-left: 1px solid #c9ced4; }
 .segmented button.active { background: #1d232a; color: #fff; }
+.schedule-help { margin-left: -12px; }
 .day-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
 .day-grid .card { margin: 16px 0 0; }
 .chart-card { min-width: 0; }

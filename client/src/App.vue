@@ -30,6 +30,9 @@ async function logout() {
           {{ hall.name }}
         </RouterLink>
       </nav>
+      <nav>
+        <RouterLink :to="{ name: 'interventions' }">Intervention history</RouterLink>
+      </nav>
       <div class="account">
         <div>{{ auth.user!.name }}</div>
         <div class="role">{{ auth.user!.role }}</div>
