@@ -1,5 +1,6 @@
 /** Thin typed client for the JSON API (proxied to the Node server by Vite). */
 import type { MeasuredViolation } from "./violations";
+import { perfLog } from "./perf";
 
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
 /** Weekdays count from 0 = Monday; start and end are local wall-clock times. */
@@ -211,6 +212,7 @@ export function setUnauthorizedHandler(fn: () => void): void {
 }
 
 async function request<T>(method: "GET" | "POST", path: string, data?: unknown): Promise<T> {
+  const start = performance.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let res: Response;
@@ -223,7 +225,9 @@ async function request<T>(method: "GET" | "POST", path: string, data?: unknown):
       body: data === undefined ? undefined : JSON.stringify(data),
       signal: controller.signal,
     });
+    const received = performance.now();
     body = await res.json().catch(() => ({}));
+    perfLog(`${method} ${path}`, performance.now() - start, `parse ${(performance.now() - received).toFixed(1)} ms`);
   } catch {
     throw new ConnectionError(
       controller.signal.aborted
@@ -268,6 +272,10 @@ export const api = {
   dayCost: (id: string, date: string) => get<DayCost>(`/halls/${encodeURIComponent(id)}/cost?date=${date}`),
   series: (id: string, date: string) =>
     get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${date}&to=${date}`),
+  seriesRange: (id: string, from: string, to: string) =>
+    get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${from}&to=${to}`),
+  violationsRange: (id: string, from: string, to: string) =>
+    get<HallViolations>(`/halls/${encodeURIComponent(id)}/violations?from=${from}&to=${to}`),
   scheduleDayCost: async (id: string, date: string, schedule: string) => {
     const r = await get<{ schedules: Record<string, DayCostTraced> }>(
       `/halls/${encodeURIComponent(id)}/cost?date=${date}&schedule=${encodeURIComponent(schedule)}&trace=1`,

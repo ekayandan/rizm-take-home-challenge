@@ -45,3 +45,10 @@ All breaches count, using the checker's tolerance. The data currently has many m
 - Clock change issue: the chart's hover readout and axis show repeated times on 25 Oct with no label saying which is which. The breach list labels them (1st/2nd), but no seeded hall has a breach that day.
 - Equipment violations are counted in the card but not marked on a chart; none occur in the seeded schedules.
 - Stage 2: persisted violations, central view, explanations, seen/unseen.
+
+## Week view (issue #5)
+
+Split into performance (#22, this draft PR, awaiting manual tests) and readability (#23, planned). Details in `chart-tab-freeze-inspection.md`.
+
+- Week route on the existing chart and endpoints, with day labels and dates in the hover readout. Hover no longer re-renders the whole chart.
+- The reported freeze could not be reproduced, so the fix is best effort. It was not tested on old hardware.

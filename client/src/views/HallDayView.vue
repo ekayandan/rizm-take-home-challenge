@@ -343,6 +343,7 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
         @click="schedule = s"
       >{{ label(s) }}</button>
     </div>
+    <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
     <TermHelp term="schedule" class="schedule-help" />
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>

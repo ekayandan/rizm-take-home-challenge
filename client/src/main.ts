@@ -4,7 +4,10 @@ import App from "./App.vue";
 import { router } from "./router";
 import { setUnauthorizedHandler } from "./api";
 import { useAuthStore } from "./stores/auth";
+import { watchLongTasks } from "./perf";
 import "./style.css";
+
+watchLongTasks();
 
 const app = createApp(App).use(createPinia()).use(router);
 
