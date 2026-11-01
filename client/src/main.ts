@@ -16,6 +16,7 @@ setUnauthorizedHandler(() => {
   const auth = useAuthStore();
   if (!auth.loggedIn) return;
   auth.clear();
+  auth.sessionExpired = true;
   const current = router.currentRoute.value;
   if (current.name !== "login") router.replace({ name: "login", query: { redirect: current.fullPath } });
 });

@@ -193,6 +193,16 @@ export function listMaintenanceWindows(db: DB, hallId: string): MaintenanceWindo
     .all(hallId) as unknown as MaintenanceWindowRow[];
 }
 
+/** A window in force with exactly this asset and these instants, if any; a revoked one doesn't count. */
+export function findMaintenanceWindow(
+  db: DB,
+  w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string },
+): MaintenanceWindowRow | undefined {
+  return db
+    .prepare(`${MAINTENANCE_SELECT} WHERE i.hall_id = ? AND w.asset = ? AND w.start_utc = ? AND w.end_utc = ? ORDER BY i.id LIMIT 1`)
+    .get(w.hall_id, w.asset, w.start_utc, w.end_utc) as unknown as MaintenanceWindowRow | undefined;
+}
+
 export function insertMaintenanceWindow(
   db: DB,
   w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string; reason: string; user: { id: string; name: string } },

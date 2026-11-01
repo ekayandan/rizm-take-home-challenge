@@ -25,6 +25,8 @@ router.beforeEach(async (to) => {
   const auth = useAuthStore();
   await auth.ensureChecked();
   if (to.meta.public) return auth.loggedIn && to.name === "login" ? { path: "/" } : true;
+  // Not known to be logged out: App shows the outage with a retry instead of the page.
+  if (auth.unavailable) return true;
   if (!auth.loggedIn) return { name: "login", query: to.fullPath === "/" ? {} : { redirect: to.fullPath } };
   return true;
 });
