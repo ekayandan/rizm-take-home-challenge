@@ -7,14 +7,15 @@
  */
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
+import { api, ApiError, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
+import { isValidDate, longDate, shortDate } from "../dates";
 import { useSitesStore } from "../stores/sites";
 import DayChart, { type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
 import DayPicker from "../components/DayPicker.vue";
 import MaintenancePanel from "../components/MaintenancePanel.vue";
 import BreachList from "../components/BreachList.vue";
 import TermHelp from "../components/TermHelp.vue";
-import { amount, num } from "../violations";
+import { amount, missingReadingsNote, num, readingCoverage } from "../violations";
 
 const props = defineProps<{ hallId: string; date: string }>();
 const route = useRoute();
@@ -30,6 +31,7 @@ const costs = ref<Record<string, DayCostTraced>>({});
 const measuredBreaches = ref<MeasuredViolation[]>([]);
 const error = ref<string | null>(null);
 const loading = ref(false);
+const notFound = ref(false);
 
 const schedules = computed(() => {
   const names = hall.value?.schedules ?? [];
@@ -47,56 +49,80 @@ const schedule = computed<string>({
   set: (v) => router.replace({ query: { ...route.query, schedule: v } }),
 });
 
-watch(
-  () => props.hallId,
-  async (id) => {
-    hall.value = null;
-    try {
-      hall.value = await api.hall(id);
-    } catch (e) {
-      error.value = (e as Error).message;
-    }
-  },
-  { immediate: true },
-);
+const validDate = computed(() => isValidDate(props.date));
+const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId) ?? "Hall");
+
+/** Why this date has nothing to show; hall.days holds exactly the days with price data. */
+const dayNotice = computed(() => {
+  const h = hall.value;
+  if (!h) return null;
+  if (!validDate.value) return "That isn't a valid date.";
+  if (!h.first_date || !h.last_date) return `No data has been recorded for ${h.name} yet.`;
+  if (props.date < h.first_date || props.date > h.last_date) {
+    return `There is no data for ${longDate(props.date)}. The data for ${h.name} covers ${longDate(h.first_date)} to ${longDate(h.last_date)}.`;
+  }
+  if (!h.days.some((d) => d.date === props.date)) {
+    return `No price data for ${h.name} on ${shortDate(props.date)}, so cost and plan can't be calculated.`;
+  }
+  return null;
+});
+
+let hallRequest = 0;
+async function loadHall() {
+  const req = ++hallRequest;
+  hall.value = null;
+  error.value = null;
+  notFound.value = false;
+  try {
+    const h = await api.hall(props.hallId);
+    if (req === hallRequest) hall.value = h;
+  } catch (e) {
+    if (req !== hallRequest) return;
+    if (e instanceof ApiError && e.status === 404) notFound.value = true;
+    else error.value = (e as Error).message;
+  }
+}
 
 // Load the day's series and the traced cost of every schedule, so switching is instant.
 let request = 0;
-watch(
-  [() => props.hallId, () => props.date, schedules],
-  async ([id, date, names]) => {
-    if (!names.length) return;
-    const req = ++request;
-    loading.value = true;
-    error.value = null;
-    series.value = null;
-    costs.value = {};
-    measuredBreaches.value = [];
-    try {
-      const [s, v, ...reports] = await Promise.all([
-        api.series(id, date),
-        api.violations(id, date),
-        ...names.map((n) => api.scheduleDayCost(id, date, n)),
-      ]);
-      if (req !== request) return;
-      series.value = s;
-      measuredBreaches.value = v.violations;
-      costs.value = Object.fromEntries(names.map((n, i) => [n, reports[i]]));
-    } catch (e) {
-      if (req === request) error.value = (e as Error).message;
-    } finally {
-      if (req === request) loading.value = false;
-    }
-  },
-  { immediate: true },
-);
+async function loadDay() {
+  const req = ++request;
+  loading.value = false;
+  series.value = null;
+  costs.value = {};
+  measuredBreaches.value = [];
+  if (!hall.value) return;
+  error.value = null;
+  const names = schedules.value;
+  if (!names.length || dayNotice.value) return;
+  const id = props.hallId;
+  const date = props.date;
+  loading.value = true;
+  try {
+    const [s, v, ...reports] = await Promise.all([
+      api.series(id, date),
+      api.violations(id, date),
+      ...names.map((n) => api.scheduleDayCost(id, date, n)),
+    ]);
+    if (req !== request) return;
+    series.value = s;
+    measuredBreaches.value = v.violations;
+    costs.value = Object.fromEntries(names.map((n, i) => [n, reports[i]]));
+  } catch (e) {
+    if (req === request) error.value = e instanceof ApiError && e.status === 400 ? "There is no data for this day." : (e as Error).message;
+  } finally {
+    if (req === request) loading.value = false;
+  }
+}
 
-const dayIndex = computed(() => hall.value?.days.findIndex((d) => d.date === props.date) ?? -1);
-const prevDay = computed(() => (dayIndex.value > 0 ? hall.value!.days[dayIndex.value - 1].date : null));
-const nextDay = computed(() => {
-  const days = hall.value?.days ?? [];
-  return dayIndex.value >= 0 && dayIndex.value < days.length - 1 ? days[dayIndex.value + 1].date : null;
-});
+const retry = () => (hall.value ? loadDay() : loadHall());
+
+watch(() => props.hallId, () => loadHall(), { immediate: true });
+watch([hall, () => props.date], loadDay, { immediate: true });
+
+/** Nearest days with data, also from a day that has none. An invalid date only gets the first day. */
+const prevDay = computed(() => (validDate.value ? hall.value?.days.filter((d) => d.date < props.date).at(-1)?.date ?? null : null));
+const nextDay = computed(() => (validDate.value ? hall.value?.days.find((d) => d.date > props.date)?.date : hall.value?.days[0]?.date) ?? null);
 const goToDay = (date: string) => router.push({ name: "hall-day", params: { hallId: props.hallId, date }, query: route.query });
 
 const shown = computed(() => costs.value[schedule.value] ?? null);
@@ -135,6 +161,9 @@ const measuredSummary = computed(() => {
   };
   return { temp: worst((c) => STATE_TEMP.has(c)), co2: worst((c) => c === "co2_above_max") };
 });
+
+const measuredOk = computed(() => !measuredSummary.value.temp && !measuredSummary.value.co2);
+const readingsNote = computed(() => (series.value ? missingReadingsNote(readingCoverage(series.value)) : null));
 
 const controlViolations = computed(
   () => (shown.value?.violations ?? []).filter((v) => !STATE_TEMP.has(v.constraint) && v.constraint !== "co2_above_max").length,
@@ -212,10 +241,14 @@ const panels = computed<ChartPanel[]>(() => {
 const eur = (v: number) => v.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 const kwh = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits: 0 })} kWh`;
 const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits: 1 })} %`;
-const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId) ?? props.hallId);
 </script>
 
 <template>
+  <template v-if="notFound">
+    <p class="error">We couldn't find that hall.</p>
+    <RouterLink to="/">Back to Sites</RouterLink>
+  </template>
+  <template v-else>
   <nav class="crumbs">
     <RouterLink to="/">Sites</RouterLink> ›
     <RouterLink :to="{ name: 'hall', params: { hallId } }">{{ hallName }}</RouterLink> ›
@@ -226,10 +259,10 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
   <div class="toolbar">
     <div class="day-nav">
       <button type="button" :disabled="!prevDay" aria-label="Previous day" @click="prevDay && goToDay(prevDay)">‹</button>
-      <DayPicker v-if="hall" :model-value="date" :days="hall.days" @update:model-value="goToDay" />
+      <DayPicker v-if="hall?.days.length" :model-value="date" :days="hall.days" @update:model-value="goToDay" />
       <button type="button" :disabled="!nextDay" aria-label="Next day" @click="nextDay && goToDay(nextDay)">›</button>
     </div>
-    <div class="segmented" role="radiogroup" aria-label="Schedule">
+    <div v-if="schedules.length" class="segmented" role="radiogroup" aria-label="Schedule">
       <button
         v-for="s in schedules"
         :key="s"
@@ -240,14 +273,26 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
         @click="schedule = s"
       >{{ label(s) }}</button>
     </div>
+    <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
     <TermHelp term="schedule" class="schedule-help" />
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>
 
-  <p v-if="error" class="error">{{ error }}</p>
-  <p v-else-if="hall && !schedules.length" class="muted">This hall has no schedules.</p>
+  <p v-if="error" class="error">
+    {{ error }}
+    <button type="button" class="retry" @click="retry">Try again</button>
+  </p>
+  <p v-else-if="dayNotice" class="day-notice">
+    {{ dayNotice }}
+    <template v-if="prevDay || nextDay">
+      <span class="muted">{{ validDate ? "Nearest days with data:" : "Go to:" }}</span>
+      <RouterLink v-if="prevDay" class="near-day" :to="{ name: 'hall-day', params: { hallId, date: prevDay }, query: route.query }">‹ {{ shortDate(prevDay) }}</RouterLink>
+      <RouterLink v-if="nextDay" class="near-day" :to="{ name: 'hall-day', params: { hallId, date: nextDay }, query: route.query }">{{ shortDate(nextDay) }} ›</RouterLink>
+    </template>
+  </p>
+  <p v-else-if="hall && !schedules.length" class="muted">This hall has no schedules, so there is no plan or cost to show.</p>
 
-  <div v-if="!error" class="day-grid">
+  <div v-if="!error && !dayNotice && !(hall && !schedules.length)" class="day-grid">
     <section class="card chart-card">
       <p v-if="loading || !series" class="muted">Loading day…</p>
       <DayChart v-else :times="times" :panels="panels" />
@@ -274,14 +319,15 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
           Plan: {{ shown.n_violations }} limit violation{{ shown.n_violations === 1 ? "" : "s" }} in simulation
           <template v-if="controlViolations"> ({{ controlViolations }} equipment, not marked in the chart)</template>.
         </p>
-        <div v-if="measuredSummary.temp || measuredSummary.co2" class="error measured-breach">
+        <div v-if="!measuredOk" class="error measured-breach">
           Sensors: comfort limits broken on this day, marked red in the chart.
           <ul>
             <li v-if="measuredSummary.temp">Temperature: {{ num(measuredSummary.temp.hours, 2) }} h, up to {{ amount(measuredSummary.temp.over, 2) }} °C past the limit</li>
             <li v-if="measuredSummary.co2">CO₂: {{ num(measuredSummary.co2.hours, 2) }} h, up to {{ amount(measuredSummary.co2.over, 0) }} ppm past the limit</li>
           </ul>
         </div>
-        <p v-else class="ok">Sensors: measured climate stayed within limits.</p>
+        <p v-if="readingsNote" class="muted">Sensors: {{ readingsNote }}</p>
+        <p v-else-if="measuredOk" class="ok">Sensors: measured climate stayed within limits.</p>
 
         <p v-if="baseline" class="compare">
           Baseline: {{ eur(baseline.cost_eur) }}<br />
@@ -310,7 +356,8 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
     :plan-label="label(schedule)"
   />
 
-  <MaintenancePanel v-if="hall" :hall-id="hallId" :date="date" :timezone="hall.timezone" />
+  <MaintenancePanel v-if="hall && validDate" :hall-id="hallId" :date="date" :timezone="hall.timezone" />
+  </template>
 </template>
 
 <style scoped>
@@ -337,6 +384,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .cost-card tr.total th, .cost-card tr.total td:nth-child(2) { font-weight: 600; }
 .compare { border-top: 1px solid #eef0f3; padding-top: 10px; }
 .ok { color: #2b8a3e; }
+.day-notice { margin: 16px 0; }
+.near-day { margin-left: 8px; }
 .measured-breach ul { margin: 4px 0 0; padding-left: 18px; }
 .small { font-size: 12px; }
 @media (max-width: 1000px) { .day-grid { grid-template-columns: 1fr; } }

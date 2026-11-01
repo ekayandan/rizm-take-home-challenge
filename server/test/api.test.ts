@@ -245,10 +245,10 @@ test("interventions: history shows who, when and why, newest first, for the user
   const viewer = await login("petra.koch@example.com", "viewer-2026");
   const path = "/interventions";
   const before = (await get(path, viewer)).body.length;
-  const add = (reason: string) =>
-    post("/halls/halle-3/maintenance", { asset: "chiller", start: "2026-10-08T08:00", end: "2026-10-08T09:00", reason, created_by_name: "Forged" }, lena);
-  assert.equal((await add("First")).status, 201);
-  assert.equal((await add("Second")).status, 201);
+  const add = (reason: string, start: string) =>
+    post("/halls/halle-3/maintenance", { asset: "chiller", start, end: "2026-10-08T09:00", reason, created_by_name: "Forged" }, lena);
+  assert.equal((await add("First", "2026-10-08T07:00")).status, 201);
+  assert.equal((await add("Second", "2026-10-08T08:00")).status, 201);
 
   const { status, body } = await get(path, viewer);
   assert.equal(status, 200);

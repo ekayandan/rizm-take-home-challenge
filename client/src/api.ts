@@ -1,5 +1,6 @@
 /** Thin typed client for the JSON API (proxied to the Node server by Vite). */
 import type { MeasuredViolation } from "./violations";
+import { perfLog } from "./perf";
 
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
 /** Weekdays count from 0 = Monday; start and end are local wall-clock times. */
@@ -184,6 +185,28 @@ export interface User { id: string; name: string; email: string; role: Role; sit
 /** Thrown for 401 responses; the session is missing or expired. */
 export class Unauthorized extends Error {}
 
+/** The server answered with an error other than 401. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+/** No answer arrived, so a write may or may not have reached the server. */
+export class ConnectionError extends Error {}
+
+/** True if a failed save may have been stored anyway: no answer, or the server failed part way. */
+export const outcomeUnknown = (e: unknown) => e instanceof ConnectionError || (e instanceof ApiError && e.status >= 500);
+
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** Plain words for an error status; a 4xx keeps the server's own explanation. */
+function errorMessage(status: number, serverMessage?: string): string {
+  if (status === 502 || status === 503 || status === 504) return "The service is not available right now. Try again in a moment.";
+  if (status >= 500) return "Something went wrong on the server. Try again in a moment.";
+  return serverMessage ?? "The request could not be completed.";
+}
+
 let onUnauthorized: () => void = () => {};
 /** Called whenever a data request answers 401 (e.g. the session expired). */
 export function setUnauthorizedHandler(fn: () => void): void {
@@ -191,15 +214,33 @@ export function setUnauthorizedHandler(fn: () => void): void {
 }
 
 async function request<T>(method: "GET" | "POST", path: string, data?: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method,
-    credentials: "same-origin",
-    headers: data === undefined ? undefined : { "content-type": "application/json" },
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  const body = await res.json().catch(() => ({}));
+  const start = performance.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let res: Response;
+  let body: { error?: string };
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      credentials: "same-origin",
+      headers: data === undefined ? undefined : { "content-type": "application/json" },
+      body: data === undefined ? undefined : JSON.stringify(data),
+      signal: controller.signal,
+    });
+    const received = performance.now();
+    body = await res.json().catch(() => ({}));
+    perfLog(`${method} ${path}`, performance.now() - start, `parse ${(performance.now() - received).toFixed(1)} ms`);
+  } catch {
+    throw new ConnectionError(
+      controller.signal.aborted
+        ? "The server took too long to answer. Try again in a moment."
+        : "We can't reach the server. Check your connection and try again.",
+    );
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) throw new Unauthorized(body.error ?? "login required");
-  if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError(errorMessage(res.status, body.error), res.status);
   return body as T;
 }
 
@@ -233,6 +274,10 @@ export const api = {
   dayCost: (id: string, date: string) => get<DayCost>(`/halls/${encodeURIComponent(id)}/cost?date=${date}`),
   series: (id: string, date: string) =>
     get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${date}&to=${date}`),
+  seriesRange: (id: string, from: string, to: string) =>
+    get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${from}&to=${to}`),
+  violationsRange: (id: string, from: string, to: string) =>
+    get<HallViolations>(`/halls/${encodeURIComponent(id)}/violations?from=${from}&to=${to}`),
   scheduleDayCost: async (id: string, date: string, schedule: string) => {
     const r = await get<{ schedules: Record<string, DayCostTraced> }>(
       `/halls/${encodeURIComponent(id)}/cost?date=${date}&schedule=${encodeURIComponent(schedule)}&trace=1`,
