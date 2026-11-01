@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import HomeView from "./views/HomeView.vue";
 import HallView from "./views/HallView.vue";
 import HallDayView from "./views/HallDayView.vue";
+import HallMaintenanceView from "./views/HallMaintenanceView.vue";
 import HallWeekView from "./views/HallWeekView.vue";
 import InterventionsView from "./views/InterventionsView.vue";
 import LoginView from "./views/LoginView.vue";
@@ -15,6 +16,7 @@ export const router = createRouter({
     { path: "/halls/:hallId", name: "hall", component: HallView, props: true },
     { path: "/halls/:hallId/days/:date", name: "hall-day", component: HallDayView, props: true },
     { path: "/halls/:hallId/weeks/:date", name: "hall-week", component: HallWeekView, props: true },
+    { path: "/halls/:hallId/maintenance", name: "hall-maintenance", component: HallMaintenanceView, props: true },
     { path: "/interventions", name: "interventions", component: InterventionsView },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],

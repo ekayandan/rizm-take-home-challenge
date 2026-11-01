@@ -59,7 +59,7 @@ export const GLOSSARY = {
   },
   maintenanceWindow: {
     title: "Maintenance window",
-    text: "Records that an asset (fan, boiler or chiller) is unavailable between two times. It is a record for now: adding one does not change the schedules or costs shown on this page.",
+    text: "Records that an asset (fan, boiler or chiller) is unavailable between two times. The stored schedules stay as they are. The page shows what the window does to them, with nothing re-planned.",
   },
 } satisfies Record<string, GlossaryEntry>;
 

@@ -1,18 +1,18 @@
 <script setup lang="ts">
 /**
  * Hall day view: one hall, one local day. Chart of spot price, controls and the simulated
- * indoor climate of the selected schedule, with the schedule's cost for that day, and the
- * hall's maintenance windows (form to add one, list of all).
+ * indoor climate of the selected schedule, with the schedule's cost for that day. Maintenance has
+ * its own view; this one only says when saved windows change the plan.
  * URL: /halls/:hallId/days/:date?schedule=baseline|optimized
  */
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, ApiError, type DayCostTraced, type HallDetail, type HallSeries, type MeasuredViolation } from "../api";
+import { api, ApiError, type DayCostTraced, type HallDetail, type Consequences, type HallSeries, type MeasuredViolation } from "../api";
 import { isValidDate, longDate, shortDate } from "../dates";
 import { useSitesStore } from "../stores/sites";
 import DayChart, { type ChartPanel, type ChartViolation } from "../components/DayChart.vue";
 import DayPicker from "../components/DayPicker.vue";
-import MaintenancePanel from "../components/MaintenancePanel.vue";
+import HallTabs from "../components/HallTabs.vue";
 import BreachList from "../components/BreachList.vue";
 import TermHelp from "../components/TermHelp.vue";
 import { amount, missingReadingsNote, num, readingCoverage } from "../violations";
@@ -115,10 +115,29 @@ async function loadDay() {
   }
 }
 
+/** The saved windows against the plan, only to say on this page that they change it. */
+const inForce = ref<Consequences | null>(null);
+const consequencesError = ref<string | null>(null);
+
+let inForceRequest = 0;
+async function loadInForce() {
+  const req = ++inForceRequest;
+  inForce.value = null;
+  consequencesError.value = null;
+  if (!hall.value || dayNotice.value || !schedule.value) return;
+  try {
+    const r = await api.consequences(props.hallId, props.date, schedule.value);
+    if (req === inForceRequest) inForce.value = r;
+  } catch (e) {
+    if (req === inForceRequest) consequencesError.value = (e as Error).message;
+  }
+}
+
 const retry = () => (hall.value ? loadDay() : loadHall());
 
 watch(() => props.hallId, () => loadHall(), { immediate: true });
 watch([hall, () => props.date], loadDay, { immediate: true });
+watch([hall, () => props.date, schedule], loadInForce, { immediate: true });
 
 /** Nearest days with data, also from a day that has none. An invalid date only gets the first day. */
 const prevDay = computed(() => (validDate.value ? hall.value?.days.filter((d) => d.date < props.date).at(-1)?.date ?? null : null));
@@ -256,6 +275,8 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
   </nav>
   <h1>{{ hallName }} <span class="muted">· {{ date }}</span></h1>
 
+  <HallTabs :hall-id="hallId" :date="date" />
+
   <div class="toolbar">
     <div class="day-nav">
       <button type="button" :disabled="!prevDay" aria-label="Previous day" @click="prevDay && goToDay(prevDay)">‹</button>
@@ -273,7 +294,6 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
         @click="schedule = s"
       >{{ label(s) }}</button>
     </div>
-    <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
     <TermHelp term="schedule" class="schedule-help" />
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>
@@ -291,6 +311,13 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     </template>
   </p>
   <p v-else-if="hall && !schedules.length" class="muted">This hall has no schedules, so there is no plan or cost to show.</p>
+
+  <p v-if="!error && !dayNotice && inForce?.plan_changed" class="maintenance-note" role="status">
+    <template v-if="inForce.still_feasible">Saved maintenance changes this plan, but it still keeps all limits in simulation.</template>
+    <template v-else>Saved maintenance: worst case {{ inForce.new_violations_total }} new limit violation{{ inForce.new_violations_total === 1 ? "" : "s" }} if nothing is re-planned.</template>
+    This chart shows the plan without it.
+    <RouterLink :to="{ name: 'hall-maintenance', params: { hallId }, query: { ...route.query, date } }">See the comparison</RouterLink>
+  </p>
 
   <div v-if="!error && !dayNotice && !(hall && !schedules.length)" class="day-grid">
     <section class="card chart-card">
@@ -314,9 +341,9 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
         </table>
         <p class="small muted">Purchased energy at the spot price: fan power, heating ÷ boiler efficiency, cooling ÷ chiller COP.<TermHelp term="efficiency" /></p>
 
-        <p v-if="shown.feasible" class="ok">Plan: simulation stays within all comfort and equipment limits.</p>
+        <p v-if="shown.feasible" class="ok">Stored plan: simulation stays within all comfort and equipment limits.</p>
         <p v-else class="error">
-          Plan: {{ shown.n_violations }} limit violation{{ shown.n_violations === 1 ? "" : "s" }} in simulation
+          Stored plan: {{ shown.n_violations }} limit violation{{ shown.n_violations === 1 ? "" : "s" }} in simulation
           <template v-if="controlViolations"> ({{ controlViolations }} equipment, not marked in the chart)</template>.
         </p>
         <div v-if="!measuredOk" class="error measured-breach">
@@ -347,6 +374,8 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     </section>
   </div>
 
+  <p v-if="consequencesError" class="error">{{ consequencesError }}</p>
+
   <BreachList
     v-if="!error && series?.schedules[schedule]"
     :breaches="measuredBreaches"
@@ -356,7 +385,6 @@ const pct = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
     :plan-label="label(schedule)"
   />
 
-  <MaintenancePanel v-if="hall && validDate" :hall-id="hallId" :date="date" :timezone="hall.timezone" />
   </template>
 </template>
 
@@ -384,6 +412,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .cost-card tr.total th, .cost-card tr.total td:nth-child(2) { font-weight: 600; }
 .compare { border-top: 1px solid #eef0f3; padding-top: 10px; }
 .ok { color: #2b8a3e; }
+.maintenance-note { margin: 16px 0 0; padding: 8px 12px; background: #fff8e1; border-radius: 6px; }
 .day-notice { margin: 16px 0; }
 .near-day { margin-left: 8px; }
 .measured-breach ul { margin: 4px 0 0; padding-left: 18px; }

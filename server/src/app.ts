@@ -38,11 +38,17 @@
  *                                               for the local dates from … to (inclusive)
  *   /api/halls/:hallId/cost?date=[&schedule=][&initial=simulated|measured][&trace=1]
  *                                               simulate() cost of a schedule for one local day
+ *   /api/halls/:hallId/consequences?date=[&schedule=optimized][&asset=&start=&end=]
+ *                                               the schedule with the maintenance windows in force
+ *                                               blocked and nothing re-planned, against the stored
+ *                                               schedule. asset, start and end add one proposed window
+ *                                               to simulate; nothing is saved
  *   /api/halls/:hallId/violations?from=&to=     comfort bounds broken by the measured state for the
  *                                               local dates from … to; a day owns the state points
  *                                               after its first step, as in dayCost()
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { consequences, type BlockedAsset } from "./scenario.ts";
 import { dayCost, BadRequest, NotFound, type InitialStateSource } from "./cost.ts";
 import {
   authenticate, clearedCookie, createSession, deleteSession, readCookie, sessionCookie, sessionUser, SESSION_COOKIE,
@@ -208,6 +214,18 @@ const postRoutes: [RegExp, PostHandler][] = [
   }],
 ];
 
+/** The window of a preview request, or null without one; all three parameters come together. */
+function proposedWindow(q: Query, timeZone: string): BlockedAsset | null {
+  const asset = q.get("asset"), start = q.get("start"), end = q.get("end");
+  if (asset === null && start === null && end === null) return null;
+  if (asset === null || !(ASSETS as readonly string[]).includes(asset)) throw new BadRequest(`'asset' must be one of ${ASSETS.join(", ")}`);
+  const body = { start, end };
+  const startUtc = requireInstant(body, "start", timeZone);
+  const endUtc = requireInstant(body, "end", timeZone);
+  if (endUtc <= startUtc) throw new BadRequest("'end' must be after 'start'");
+  return { asset: asset as Asset, start_utc: startUtc, end_utc: endUtc };
+}
+
 const routes: [RegExp, Handler][] = [
   [/^\/api\/sites$/, (db, _p, _q, user) =>
     listSites(db).filter((s) => user.sites.includes(s.id)).map((s) => siteWithHalls(db, s))],
@@ -247,6 +265,16 @@ const routes: [RegExp, Handler][] = [
   }],
 
   [/^\/api\/interventions$/, (db, _p, _q, user) => interventionHistory(db, user)],
+
+  [/^\/api\/halls\/([^/]+)\/consequences$/, (db, [id], q, user) => {
+    const hall = requireHall(db, id, user);
+    const date = requireDate(q, "date");
+    const schedule = q.get("schedule") ?? "optimized";
+    if (!stepRange(db, id, date, date)) throw new BadRequest(`no data for hall '${id}' on ${date}`);
+    const proposed = proposedWindow(q, hall.timezone);
+    const windows: BlockedAsset[] = listMaintenanceWindows(db, id).map(({ asset, start_utc, end_utc }) => ({ asset, start_utc, end_utc }));
+    return consequences(db, id, schedule, date, proposed ? [...windows, proposed] : windows);
+  }],
 
   [/^\/api\/halls\/([^/]+)\/series$/, (db, [id], q, user) => {
     const hall = requireHall(db, id, user);
