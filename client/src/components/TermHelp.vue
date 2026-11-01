@@ -131,15 +131,17 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .term-help { white-space: normal; }
-/* A circle as tall as the surrounding font in a 24 px target, so it can still be hit on the tablet; the negative margins keep the target from pushing text and rows apart. */
+/* A circle as tall as the surrounding font in a 24 px target, so it can still be hit on the tablet; the negative margins keep the target from pushing rows apart, and leave about one character of space before the icon. The offset lifts the icon from the x-height's middle to the capitals' middle. */
 .term-help-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: 24px;
-  margin: -6px -4px;
+  margin: -6px -4px -6px 0;
   padding: 0;
+  position: relative;
+  top: -0.1em;
   border: 0;
   border-radius: 50%;
   background: none;

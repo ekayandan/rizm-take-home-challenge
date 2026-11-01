@@ -19,7 +19,7 @@ export const GLOSSARY = {
   },
   optimized: {
     title: "Optimized",
-    text: "The schedule calculated to cost less, for example by heating, cooling or ventilating when electricity is cheap, because the building stores heat for hours.",
+    text: "The schedule calculated to cost less, for example by heating, cooling or ventilating when electricity is cheap, because the building stores heat for long hours.",
   },
   spotPrice: {
     title: "Spot price",
