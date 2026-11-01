@@ -5,6 +5,7 @@ import { api, type SiteDayCost } from "../api";
 import { isValidDate, longDate } from "../dates";
 import DayPicker from "../components/DayPicker.vue";
 import ShiftHours from "../components/ShiftHours.vue";
+import TermHelp from "../components/TermHelp.vue";
 import { useSitesStore } from "../stores/sites";
 
 const store = useSitesStore();
@@ -110,7 +111,7 @@ const hasHalls = computed(() => store.sites.some((s) => s.halls.length));
     <p v-if="!site.halls.length" class="muted">This site has no halls yet.</p>
     <table v-else>
       <thead>
-        <tr><th>Hall</th><th>Shift</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
+        <tr><th>Hall</th><th>Shift</th><th><TermHelp term="optimized">Optimized cost</TermHelp></th><th>Energy</th><th><TermHelp term="feasible">Feasible</TermHelp></th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="hall in site.halls" :key="hall.id">

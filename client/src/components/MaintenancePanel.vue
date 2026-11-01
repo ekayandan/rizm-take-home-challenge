@@ -7,6 +7,7 @@
 import { computed, reactive, ref, watch } from "vue";
 import { api, ASSETS, outcomeUnknown, Unauthorized, type Asset, type MaintenanceWindow, type NewMaintenanceWindow } from "../api";
 import { useAuthStore } from "../stores/auth";
+import TermHelp from "./TermHelp.vue";
 
 const props = defineProps<{ hallId: string; date: string; timezone: string }>();
 const auth = useAuthStore();
@@ -149,7 +150,7 @@ const onShownDay = (w: MaintenanceWindow) =>
 
 <template>
   <section class="card maintenance" aria-labelledby="maintenance-title">
-    <h2 id="maintenance-title">Maintenance windows</h2>
+    <h2 id="maintenance-title">Maintenance windows<TermHelp term="maintenanceWindow" /></h2>
     <p class="muted small">Times are local to the hall ({{ timezone }}).</p>
 
     <form v-if="canEdit" class="mw-form" novalidate @submit.prevent="submit">
