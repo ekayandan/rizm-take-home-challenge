@@ -2,6 +2,7 @@
 import { ref, watch } from "vue";
 import { api, type DayCost, type HallDetail } from "../api";
 import DayPicker from "../components/DayPicker.vue";
+import TermHelp from "../components/TermHelp.vue";
 
 const props = defineProps<{ hallId: string }>();
 
@@ -56,11 +57,11 @@ watch([() => props.hallId, date], async ([id, d]) => {
       <h2>Cost on {{ cost.date }}</h2>
       <table>
         <thead>
-          <tr><th>Schedule</th><th>Cost</th><th>Fan</th><th>Heating</th><th>Cooling</th><th>Energy</th><th>Feasible</th></tr>
+          <tr><th>Schedule</th><th>Cost</th><th>Fan</th><th>Heating</th><th>Cooling</th><th>Energy</th><th><TermHelp term="feasible">Feasible</TermHelp></th></tr>
         </thead>
         <tbody>
           <tr v-for="(r, name) in cost.schedules" :key="name">
-            <td>{{ name }}</td>
+            <td><TermHelp v-if="name === 'baseline' || name === 'optimized'" :term="name">{{ name }}</TermHelp><template v-else>{{ name }}</template></td>
             <td>{{ eur(r.cost_eur) }}</td>
             <td>{{ eur(r.cost_breakdown_eur.fan) }}</td>
             <td>{{ eur(r.cost_breakdown_eur.heating) }}</td>

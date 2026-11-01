@@ -6,6 +6,7 @@
 import { computed } from "vue";
 import type { HallSeries, MeasuredViolation, ScheduleSeries } from "../api";
 import { amount, num } from "../violations";
+import TermHelp from "./TermHelp.vue";
 
 const props = defineProps<{
   breaches: MeasuredViolation[];
@@ -61,8 +62,8 @@ const rows = computed(() => {
         <table>
           <thead>
             <tr>
-              <th>Time</th><th>Limit</th><th class="num">Past limit</th><th class="num">Reading / limit</th>
-              <th class="num">Price €/MWh</th><th class="num">Fan kg/s</th><th class="num">Recirc.</th><th class="num">Heat kW</th><th class="num">Cool kW</th>
+              <th>Time</th><th>Limit</th><th class="num"><TermHelp term="pastLimit">Past limit</TermHelp></th><th class="num">Reading / limit</th>
+              <th class="num"><TermHelp term="spotPrice">Price €/MWh</TermHelp></th><th class="num"><TermHelp term="massFlow">Fan kg/s</TermHelp></th><th class="num"><TermHelp term="recirculation">Recirc.</TermHelp></th><th class="num">Heat kW</th><th class="num">Cool kW</th>
             </tr>
           </thead>
           <tbody>
