@@ -5,7 +5,7 @@
  * touch the shown day are highlighted. Times are wall-clock times in the hall's timezone.
  */
 import { computed, reactive, ref, watch } from "vue";
-import { api, ASSETS, type Asset, type MaintenanceWindow } from "../api";
+import { api, ASSETS, outcomeUnknown, Unauthorized, type Asset, type MaintenanceWindow, type NewMaintenanceWindow } from "../api";
 import { useAuthStore } from "../stores/auth";
 
 const props = defineProps<{ hallId: string; date: string; timezone: string }>();
@@ -23,47 +23,110 @@ const form = reactive({ asset: "fan" as Asset, start: "", end: "" });
 const saving = ref(false);
 const submitError = ref<string | null>(null);
 const saved = ref<number | null>(null);
+/** Good news about a save: role="status", where submitError is role="alert". */
+const status = ref<string | null>(null);
 
 function resetTimes() {
   form.start = `${props.date}T06:00`;
   form.end = `${props.date}T14:00`;
 }
 
+function clearMessages() {
+  submitError.value = null;
+  status.value = null;
+  saved.value = null;
+}
+
+/** The times someone typed, kept while their session expired and they log in again. */
+const draftKey = () => `maintenance-draft:${props.hallId}`;
+
+function keepDraft(draft: NewMaintenanceWindow) {
+  try {
+    sessionStorage.setItem(draftKey(), JSON.stringify(draft));
+  } catch {}
+}
+
+function restoreDraft() {
+  try {
+    const raw = sessionStorage.getItem(draftKey());
+    if (!raw) return;
+    sessionStorage.removeItem(draftKey());
+    Object.assign(form, JSON.parse(raw) as NewMaintenanceWindow);
+    status.value = "Your entered times were restored. They have not been saved yet.";
+  } catch {}
+}
+
 let request = 0;
-async function load() {
+/** Returns whether the list could be fetched; a failure keeps the old rows on screen. */
+async function load(): Promise<boolean> {
   const req = ++request;
   loading.value = true;
   loadError.value = null;
   try {
     const list = await api.maintenance(props.hallId);
     if (req === request) windows.value = list;
+    return true;
   } catch (e) {
     if (req === request) loadError.value = (e as Error).message;
+    return false;
   } finally {
     if (req === request) loading.value = false;
   }
 }
 
-watch(() => props.hallId, () => { windows.value = []; load(); }, { immediate: true });
-watch(() => props.date, () => { resetTimes(); submitError.value = null; saved.value = null; }, { immediate: true });
+watch(() => props.date, () => { resetTimes(); clearMessages(); }, { immediate: true });
+watch(() => props.hallId, () => { windows.value = []; clearMessages(); load(); restoreDraft(); }, { immediate: true });
 
 /** Both fields hold "YYYY-MM-DDTHH:MM" in the same timezone, so text order is time order. */
 const rangeError = computed(() => (form.start && form.end && form.end <= form.start ? "End must be after start." : null));
 const canSubmit = computed(() => !!form.start && !!form.end && !rangeError.value && !saving.value);
 
 async function submit() {
-  submitError.value = null;
-  saved.value = null;
+  clearMessages();
   if (!canSubmit.value) return;
   saving.value = true;
+  const attempt: NewMaintenanceWindow = { asset: form.asset, start: form.start, end: form.end };
+  const hallId = props.hallId;
   try {
-    const w = await api.addMaintenance(props.hallId, { asset: form.asset, start: form.start, end: form.end });
+    const w = await api.addMaintenance(hallId, attempt);
     saved.value = w.id;
-    await load();
+    // The save and the refresh are separate steps: a failed refresh doesn't undo the save.
+    status.value = (await load()) ? "Saved." : "Saved, but the list could not be refreshed.";
   } catch (e) {
-    submitError.value = (e as Error).message;
+    await explainFailedSave(e, attempt, hallId);
   } finally {
     saving.value = false;
+  }
+}
+
+/** The list gives local times with an offset; the form holds the same local times without one. */
+const sameWindow = (w: MaintenanceWindow, a: NewMaintenanceWindow) =>
+  w.asset === a.asset && w.start_local.slice(0, 16) === a.start && w.end_local.slice(0, 16) === a.end;
+
+/** Says what became of a failed save, so nobody retries a window that is already stored. */
+async function explainFailedSave(e: unknown, attempt: NewMaintenanceWindow, hallId: string) {
+  if (e instanceof Unauthorized) {
+    keepDraft(attempt);
+    submitError.value = "Your session expired; your window was not saved.";
+    return;
+  }
+  if (!outcomeUnknown(e)) {
+    submitError.value = (e as Error).message;
+    await load(); // A duplicate answers 409: show the window it duplicates.
+    return;
+  }
+  const listed = await load();
+  if (hallId !== props.hallId) return;
+  if (!listed) {
+    submitError.value = "We can't tell whether your window was saved, because the server isn't answering. Check the list when it's back before adding it again.";
+    return;
+  }
+  const match = windows.value.find((w) => sameWindow(w, attempt));
+  if (match) {
+    saved.value = match.id;
+    status.value = "This window is saved, so there's no need to add it again.";
+  } else {
+    submitError.value = "Your window was not saved. Please try again.";
   }
 }
 
@@ -107,11 +170,16 @@ const onShownDay = (w: MaintenanceWindow) =>
     <p v-else class="muted small">Only operators and admins can add maintenance windows.</p>
     <p v-if="canEdit && rangeError" class="error small" role="alert">{{ rangeError }}</p>
     <p v-if="submitError" class="error small" role="alert">{{ submitError }}</p>
+    <p v-if="status" class="saved small" role="status">{{ status }}</p>
 
-    <p v-if="loadError" class="error">{{ loadError }}</p>
+    <p v-if="loadError" class="error">
+      {{ loadError }}
+      <template v-if="windows.length">The list below may be out of date.</template>
+      <button type="button" class="retry" @click="load">Try again</button>
+    </p>
     <p v-else-if="loading && !windows.length" class="muted">Loading windows…</p>
     <p v-else-if="!windows.length" class="muted">No maintenance windows recorded for this hall.</p>
-    <table v-else>
+    <table v-if="windows.length">
       <thead>
         <tr><th>Asset</th><th>Start</th><th>End</th><th>Duration</th><th>Added by</th></tr>
       </thead>
@@ -141,5 +209,6 @@ table { margin-top: 12px; }
 tr.today td { background: #fff8e1; }
 tr.fresh td:first-child { font-weight: 600; }
 .small { font-size: 12px; }
-.error.small { margin: 4px 0; }
+.error.small, .saved.small { margin: 4px 0; }
+.saved { color: #2b8a3e; }
 </style>

@@ -16,6 +16,7 @@
  *                                               local wall-clock times "YYYY-MM-DDTHH:MM" in the
  *                                               hall's timezone (or ISO instants with Z/offset);
  *                                               end must be after start. Admins and operators only.
+ *                                               An identical window (same asset and instants) answers 409.
  *
  * All other routes are GET:
  *
@@ -41,9 +42,9 @@ import {
   authenticate, clearedCookie, createSession, deleteSession, readCookie, sessionCookie, sessionUser, SESSION_COOKIE,
   type User,
 } from "./auth.ts";
-import { MissingDatabase, type DB } from "./db.ts";
+import { MissingDatabase, transaction, type DB } from "./db.ts";
 import {
-  ASSETS, dateRange, getHall, insertMaintenanceWindow, listMaintenanceWindows, getScheduleSteps, getSite, getSteps, listDays, listHalls, listScheduleNames, listSites, stepRange,
+  ASSETS, dateRange, findMaintenanceWindow, getHall, insertMaintenanceWindow, listMaintenanceWindows, getScheduleSteps, getSite, getSteps, listDays, listHalls, listScheduleNames, listSites, stepRange,
   type Asset, type HallRow, type MaintenanceWindowRow, type SiteRow,
 } from "./repo.ts";
 import { formatOffset, isIsoDate, localParts, localToUtc } from "./time.ts";
@@ -55,6 +56,9 @@ type Handler = (db: DB, params: string[], q: Query, user: User) => unknown;
 class Unauthorized extends Error {}
 class TooManyRequests extends Error {}
 class Forbidden extends Error {}
+class Conflict extends Error {}
+
+const DB_UNAVAILABLE = "The service is temporarily unavailable. Please try again later.";
 
 function hallSummary(h: HallRow) {
   return { id: h.id, site_id: h.site_id, name: h.name, notes: h.notes, timezone: h.timezone };
@@ -150,7 +154,7 @@ function requireInstant(body: Record<string, unknown>, key: string, timeZone: st
     const t = localToUtc(v, timeZone);
     if (t !== null) return new Date(t).toISOString();
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}Z`))) {
-      throw new BadRequest(`'${key}' ${v} does not exist in ${timeZone} (clock change)`);
+      throw new BadRequest(`The ${key} time ${v} does not exist in ${timeZone} because of the clock change.`);
     }
   }
   throw new BadRequest(`'${key}' must be a date and time as YYYY-MM-DDTHH:MM, got '${v}'`);
@@ -169,7 +173,14 @@ const postRoutes: [RegExp, PostHandler][] = [
     const start = requireInstant(body, "start", hall.timezone);
     const end = requireInstant(body, "end", hall.timezone);
     if (end <= start) throw new BadRequest("'end' must be after 'start'");
-    const row = insertMaintenanceWindow(db, { hall_id: id, asset: asset as Asset, start_utc: start, end_utc: end, created_by: user.id });
+    const window = { hall_id: id, asset: asset as Asset, start_utc: start, end_utc: end };
+    const row = transaction(db, () => {
+      const existing = findMaintenanceWindow(db, window);
+      if (existing) {
+        throw new Conflict(`This window was already recorded${existing.created_by_name ? ` by ${existing.created_by_name}` : ""}, so it was not added again.`);
+      }
+      return insertMaintenanceWindow(db, { ...window, created_by: user.id });
+    });
     return maintenanceOut(row, hall);
   }],
 ];
@@ -363,7 +374,15 @@ async function handle(req: IncomingMessage, res: ServerResponse, getDb: () => DB
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const method = req.method ?? "GET";
 
-  if (path === "/api/health") return send(res, 200, { ok: true });
+  if (path === "/api/health") {
+    try {
+      getDb().prepare("SELECT 1 FROM sites LIMIT 1").get();
+      return send(res, 200, { ok: true });
+    } catch (err) {
+      console.error("[api] health check failed:", err);
+      return send(res, 503, { ok: false, error: DB_UNAVAILABLE });
+    }
+  }
 
   if (path === "/api/auth/login") {
     if (method !== "POST") return send(res, 405, { error: "use POST" });
@@ -410,8 +429,12 @@ export function createHandler(getDb: () => DB) {
       if (err instanceof Forbidden) return send(res, 403, { error: err.message });
       if (err instanceof NotFound) return send(res, 404, { error: err.message });
       if (err instanceof BadRequest) return send(res, 400, { error: err.message });
-      if (err instanceof MissingDatabase) return send(res, 503, { error: err.message });
+      if (err instanceof Conflict) return send(res, 409, { error: err.message });
       if (err instanceof URIError) return send(res, 400, { error: "malformed URL" });
+      if (err instanceof MissingDatabase || (err as { code?: string }).code === "ERR_SQLITE_ERROR") {
+        console.error("[api] database unavailable:", err);
+        return send(res, 503, { error: DB_UNAVAILABLE });
+      }
       console.error(err);
       send(res, 500, { error: "internal error" });
     });

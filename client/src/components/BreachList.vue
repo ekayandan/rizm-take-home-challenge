@@ -5,7 +5,7 @@
  */
 import { computed } from "vue";
 import type { HallSeries, MeasuredViolation, ScheduleSeries } from "../api";
-import { amount, num } from "../violations";
+import { amount, missingReadingsNote, num, readingCoverage } from "../violations";
 
 const props = defineProps<{
   breaches: MeasuredViolation[];
@@ -28,6 +28,8 @@ function timeAt(i: number): string {
   const same = props.times.flatMap((x, k) => (x === t ? [k] : []));
   return same.length > 1 ? `${t} (${same.indexOf(i) + 1}${same.indexOf(i) === 0 ? "st" : "nd"})` : t;
 }
+
+const coverage = computed(() => readingCoverage(props.series));
 
 const rows = computed(() => {
   const { step_start: start, steps } = props.series;
@@ -53,9 +55,13 @@ const rows = computed(() => {
 
 <template>
   <section class="card breach-list" aria-label="Measured limit breaches">
-    <h2>Measured limit breaches <span class="muted">({{ rows.length }} steps)</span></h2>
-    <p v-if="!rows.length" class="muted">Sensors stayed within all comfort limits on this day.</p>
-    <template v-else>
+    <h2>Measured limit breaches <span v-if="coverage.any" class="muted">({{ rows.length }} steps)</span></h2>
+    <p v-if="coverage.missing" class="muted">
+      {{ missingReadingsNote(coverage) }}
+      <template v-if="coverage.any && !rows.length">The readings we have are all within the limits.</template>
+    </p>
+    <p v-else-if="!rows.length" class="muted">Sensors stayed within all comfort limits on this day.</p>
+    <template v-if="rows.length">
       <p class="muted small">Price and {{ planLabel }} plan values are from the {{ series.dt_minutes }} minutes before each reading.</p>
       <div class="scroll">
         <table>

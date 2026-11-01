@@ -37,7 +37,8 @@ async function submit() {
   <div class="login-page">
     <form class="card login" @submit.prevent="submit">
       <h1>Hall HVAC</h1>
-      <p class="muted">Sign in to continue.</p>
+      <p v-if="auth.sessionExpired" class="expired" role="status">Your session has expired. Please sign in again. Anything you were saving at that moment was not saved.</p>
+      <p v-else class="muted">Sign in to continue.</p>
       <label>
         Email
         <input v-model="email" type="email" name="email" autocomplete="username" required autofocus />
@@ -57,6 +58,7 @@ async function submit() {
 .login { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
 .login h1 { margin: 0; }
 .login p { margin: 0; }
+.expired { color: #8a5a00; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
 input { padding: 8px; font: inherit; border: 1px solid #c8cdd3; border-radius: 6px; }
 button { padding: 8px; font: inherit; font-weight: 600; border: 0; border-radius: 6px; background: #1d232a; color: #fff; cursor: pointer; }

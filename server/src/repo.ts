@@ -192,6 +192,16 @@ export function listMaintenanceWindows(db: DB, hallId: string): MaintenanceWindo
     .all(hallId) as unknown as MaintenanceWindowRow[];
 }
 
+/** A window of the hall with exactly this asset and these instants, if one was already recorded. */
+export function findMaintenanceWindow(
+  db: DB,
+  w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string },
+): MaintenanceWindowRow | undefined {
+  return db
+    .prepare(`${MAINTENANCE_SELECT} WHERE w.hall_id = ? AND w.asset = ? AND w.start_utc = ? AND w.end_utc = ? ORDER BY w.id LIMIT 1`)
+    .get(w.hall_id, w.asset, w.start_utc, w.end_utc) as unknown as MaintenanceWindowRow | undefined;
+}
+
 export function insertMaintenanceWindow(
   db: DB,
   w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string; created_by: string },

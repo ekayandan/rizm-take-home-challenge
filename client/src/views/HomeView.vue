@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, type SiteDayCost } from "../api";
+import { isValidDate, longDate } from "../dates";
 import DayPicker from "../components/DayPicker.vue";
 import ShiftHours from "../components/ShiftHours.vue";
 import { useSitesStore } from "../stores/sites";
@@ -10,11 +11,9 @@ const store = useSitesStore();
 const route = useRoute();
 const router = useRouter();
 
-const isIsoDate = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-
 /** Selected day: ?date= in the URL, else the first day in the data. */
 const date = computed<string>({
-  get: () => (isIsoDate(route.query.date) ? route.query.date : store.firstDate ?? ""),
+  get: () => (isValidDate(route.query.date) ? route.query.date : store.firstDate ?? ""),
   set: (v) => {
     const query = { ...route.query };
     if (v && v !== store.firstDate) query.date = v;
@@ -22,6 +21,12 @@ const date = computed<string>({
     router.replace({ query });
   },
 });
+
+const outsideData = computed(() => {
+  const asked = route.query.date;
+  return isValidDate(asked) && !!store.firstDate && !!store.lastDate && (asked < store.firstDate || asked > store.lastDate);
+});
+const invalidDate = computed(() => route.query.date !== undefined && !isValidDate(route.query.date) && !!store.firstDate);
 
 const costs = ref<Record<string, SiteDayCost>>({});
 const errors = ref<Record<string, string>>({});
@@ -56,26 +61,41 @@ const kwh = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits:
 const hasDay = (h: { first_date: string | null; last_date: string | null }) =>
   !!date.value && !!h.first_date && !!h.last_date && h.first_date <= date.value && date.value <= h.last_date;
 const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.find((h) => h.hall_id === hallId);
+/** The server's reason names the schedule by its internal name. */
+const reasonText = (reason?: string) => (reason?.includes("schedule") ? "No optimized schedule for this hall" : "No data for this day");
+const hasHalls = computed(() => store.sites.some((s) => s.halls.length));
 </script>
 
 <template>
   <h1>Sites</h1>
 
-  <div class="date-picker">
+  <p v-if="store.error" class="error">
+    {{ store.error }}
+    <button type="button" class="retry" @click="store.load(true)">Try again</button>
+  </p>
+
+  <div v-if="store.days.length" class="date-picker">
     Day
-    <DayPicker v-if="store.days.length" v-model="date" :days="store.days" />
+    <DayPicker v-model="date" :days="store.days" />
     <span class="muted">
       Energy cost of the optimized schedule
       <template v-if="store.firstDate">· data from {{ store.firstDate }} to {{ store.lastDate }}</template>
     </span>
   </div>
 
-  <p v-if="!store.loading && !store.error && !store.sites.length" class="muted">No sites.</p>
+  <p v-if="invalidDate" class="date-notice">That isn't a valid date, so the first day with data is shown.</p>
+  <p v-else-if="outsideData" class="date-notice">
+    There is no data for that day. The data covers {{ longDate(store.firstDate!) }} to {{ longDate(store.lastDate!) }}.
+    <RouterLink :to="{ name: 'home' }">Go to the first day</RouterLink>
+  </p>
+
+  <p v-if="!store.loading && !store.error && !store.sites.length" class="muted">No sites are assigned to your account. Ask an administrator for access.</p>
+  <p v-else-if="hasHalls && !store.days.length" class="muted">No data has been recorded for these halls yet, so there are no costs to show.</p>
 
   <section v-for="site in store.sites" :key="site.id" class="card">
     <header class="site-head">
       <h2>{{ site.name }} <span class="muted">· {{ site.city }}</span></h2>
-      <div class="site-total">
+      <div v-if="site.halls.length" class="site-total">
         <template v-if="errors[site.id]"><span class="error">{{ errors[site.id] }}</span></template>
         <template v-else-if="!costs[site.id]"><span class="muted">{{ loading ? "Loading cost…" : "" }}</span></template>
         <template v-else-if="costs[site.id].total_cost_eur === null"><span class="muted">No cost for {{ date }}</span></template>
@@ -87,7 +107,8 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
       </div>
     </header>
 
-    <table>
+    <p v-if="!site.halls.length" class="muted">This site has no halls yet.</p>
+    <table v-else>
       <thead>
         <tr><th>Hall</th><th>Shift</th><th>Optimized cost</th><th>Energy</th><th>Feasible</th><th></th></tr>
       </thead>
@@ -108,7 +129,7 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
               {{ hallCost(site.id, hall.id)!.feasible ? "yes" : `no (${hallCost(site.id, hall.id)!.n_violations})` }}
             </td>
           </template>
-          <td v-else-if="hallCost(site.id, hall.id)" colspan="3" class="muted">{{ hallCost(site.id, hall.id)!.reason }}</td>
+          <td v-else-if="hallCost(site.id, hall.id)" colspan="3" class="muted">{{ reasonText(hallCost(site.id, hall.id)!.reason) }}</td>
           <td v-else colspan="3" class="muted">–</td>
           <td class="day-link">
             <RouterLink
@@ -128,5 +149,6 @@ const hallCost = (siteId: string, hallId: string) => costs.value[siteId]?.halls.
 .site-head h2 { margin: 0 0 8px; }
 .site-total strong { font-size: 20px; }
 .small { font-size: 13px; }
+.date-notice { margin: 12px 0 0; }
 .day-link { text-align: right; white-space: nowrap; }
 </style>

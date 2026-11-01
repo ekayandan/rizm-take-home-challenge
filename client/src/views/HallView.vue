@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { api, type DayCost, type HallDetail } from "../api";
+import { api, ApiError, type DayCost, type HallDetail } from "../api";
 import DayPicker from "../components/DayPicker.vue";
 
 const props = defineProps<{ hallId: string }>();
@@ -9,50 +9,84 @@ const hall = ref<HallDetail | null>(null);
 const date = ref<string>("");
 const cost = ref<DayCost | null>(null);
 const error = ref<string | null>(null);
+const notFound = ref(false);
+const costLoading = ref(false);
 
 const eur = (v: number) => v.toLocaleString("de-DE", { style: "currency", currency: "EUR" });
 const kwh = (v: number) => `${v.toLocaleString("de-DE", { maximumFractionDigits: 0 })} kWh`;
 
-watch(
-  () => props.hallId,
-  async (id) => {
-    hall.value = null;
-    cost.value = null;
-    error.value = null;
-    try {
-      hall.value = await api.hall(id);
-      date.value = hall.value.first_date ?? "";
-    } catch (e) {
-      error.value = (e as Error).message;
-    }
-  },
-  { immediate: true },
-);
+/** Leaves out what a hall doesn't have, such as a date range before it has data. */
+const subtitle = (h: HallDetail) =>
+  [h.notes, h.timezone, h.first_date && `${h.first_date} – ${h.last_date}`].filter(Boolean).join(" · ");
 
-watch([() => props.hallId, date], async ([id, d]) => {
-  if (!d) return;
-  cost.value = null;
+let hallRequest = 0;
+async function loadHall() {
+  const req = ++hallRequest;
+  hall.value = null;
+  error.value = null;
+  notFound.value = false;
   try {
-    cost.value = await api.dayCost(id, d);
+    const h = await api.hall(props.hallId);
+    if (req !== hallRequest) return;
+    hall.value = h;
+    date.value = h.first_date ?? "";
   } catch (e) {
-    error.value = (e as Error).message;
+    if (req !== hallRequest) return;
+    if (e instanceof ApiError && e.status === 404) notFound.value = true;
+    else error.value = (e as Error).message;
   }
-});
+}
+
+let costRequest = 0;
+async function loadCost() {
+  const req = ++costRequest;
+  const h = hall.value;
+  const d = date.value;
+  cost.value = null;
+  costLoading.value = false;
+  if (!h || !d || !h.schedules.length) return;
+  error.value = null;
+  costLoading.value = true;
+  try {
+    const c = await api.dayCost(h.id, d);
+    if (req === costRequest) cost.value = c;
+  } catch (e) {
+    if (req === costRequest) error.value = e instanceof ApiError && e.status === 400 ? `No cost is available for ${d}.` : (e as Error).message;
+  } finally {
+    if (req === costRequest) costLoading.value = false;
+  }
+}
+
+const retry = () => (hall.value ? loadCost() : loadHall());
+
+watch(() => props.hallId, () => loadHall(), { immediate: true });
+watch([hall, date], loadCost);
 </script>
 
 <template>
-  <p v-if="error" class="error">{{ error }}</p>
+  <template v-if="notFound">
+    <p class="error">We couldn't find that hall.</p>
+    <RouterLink to="/">Back to Sites</RouterLink>
+  </template>
+  <p v-if="error" class="error">
+    {{ error }}
+    <button type="button" class="retry" @click="retry">Try again</button>
+  </p>
   <template v-if="hall">
     <h1>{{ hall.name }}</h1>
-    <p class="muted">{{ hall.notes }} · {{ hall.timezone }} · {{ hall.first_date }} – {{ hall.last_date }}</p>
+    <p class="muted">{{ subtitle(hall) }}</p>
 
-    Day
-    <DayPicker v-model="date" :days="hall.days" />
-    <RouterLink v-if="date" class="day-link" :to="{ name: 'hall-day', params: { hallId: hall.id, date } }">
-      Day chart for {{ date }} ›
-    </RouterLink>
+    <template v-if="hall.days.length">
+      Day
+      <DayPicker v-model="date" :days="hall.days" />
+      <RouterLink v-if="date" class="day-link" :to="{ name: 'hall-day', params: { hallId: hall.id, date } }">
+        Day chart for {{ date }} ›
+      </RouterLink>
+    </template>
 
-    <section v-if="cost" class="card">
+    <p v-if="!hall.days.length" class="muted">No data has been recorded for this hall yet, so there is no cost to show.</p>
+    <p v-else-if="!hall.schedules.length" class="muted">This hall has no schedules yet, so there is no cost to show.</p>
+    <section v-else-if="cost" class="card">
       <h2>Cost on {{ cost.date }}</h2>
       <table>
         <thead>
@@ -72,7 +106,7 @@ watch([() => props.hallId, date], async ([id, d]) => {
       </table>
       <p v-if="cost.savings_eur !== undefined">Savings optimized vs. baseline: <strong>{{ eur(cost.savings_eur) }}</strong></p>
     </section>
-    <p v-else class="muted">Loading cost…</p>
+    <p v-else-if="costLoading" class="muted">Loading cost…</p>
   </template>
 </template>
 
