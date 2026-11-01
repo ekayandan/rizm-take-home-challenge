@@ -1,6 +1,6 @@
 /** Read access to the seeded database. */
 import type { Instance, Schedule } from "../checker/checker.ts";
-import type { DB } from "./db.ts";
+import { transaction, type DB } from "./db.ts";
 
 export interface SiteRow { id: string; name: string; city: string; timezone: string }
 
@@ -176,41 +176,75 @@ export interface MaintenanceWindowRow {
   asset: Asset;
   start_utc: string;
   end_utc: string;
-  created_by: string | null;
-  created_by_name: string | null;
+  reason: string;
+  created_by: string;
+  created_by_name: string;
   created_at: string;
 }
 
 const MAINTENANCE_SELECT = `
-  SELECT w.id, w.hall_id, w.asset, w.start_utc, w.end_utc, w.created_by, u.name AS created_by_name, w.created_at
-  FROM maintenance_windows w LEFT JOIN users u ON u.id = w.created_by`;
+  SELECT i.id, i.hall_id, w.asset, w.start_utc, w.end_utc, i.reason, i.created_by, i.created_by_name, i.created_at
+  FROM active_interventions i JOIN maintenance_windows w ON w.intervention_id = i.id`;
 
-/** A hall's maintenance windows, earliest start first. */
+/** A hall's maintenance windows in force, earliest start first. */
 export function listMaintenanceWindows(db: DB, hallId: string): MaintenanceWindowRow[] {
   return db
-    .prepare(`${MAINTENANCE_SELECT} WHERE w.hall_id = ? ORDER BY w.start_utc, w.end_utc, w.id`)
+    .prepare(`${MAINTENANCE_SELECT} WHERE i.hall_id = ? ORDER BY w.start_utc, w.end_utc, i.id`)
     .all(hallId) as unknown as MaintenanceWindowRow[];
 }
 
-/** A window of the hall with exactly this asset and these instants, if one was already recorded. */
+/** A window in force with exactly this asset and these instants, if any; a revoked one doesn't count. */
 export function findMaintenanceWindow(
   db: DB,
   w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string },
 ): MaintenanceWindowRow | undefined {
   return db
-    .prepare(`${MAINTENANCE_SELECT} WHERE w.hall_id = ? AND w.asset = ? AND w.start_utc = ? AND w.end_utc = ? ORDER BY w.id LIMIT 1`)
+    .prepare(`${MAINTENANCE_SELECT} WHERE i.hall_id = ? AND w.asset = ? AND w.start_utc = ? AND w.end_utc = ? ORDER BY i.id LIMIT 1`)
     .get(w.hall_id, w.asset, w.start_utc, w.end_utc) as unknown as MaintenanceWindowRow | undefined;
 }
 
 export function insertMaintenanceWindow(
   db: DB,
-  w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string; created_by: string },
+  w: { hall_id: string; asset: Asset; start_utc: string; end_utc: string; reason: string; user: { id: string; name: string } },
 ): MaintenanceWindowRow {
-  const r = db
+  return transaction(db, () => {
+    const r = db
+      .prepare(
+        `INSERT INTO interventions (hall_id, type, reason, created_by, created_by_name, created_at)
+         VALUES (?, 'maintenance', ?, ?, ?, ?)`,
+      )
+      .run(w.hall_id, w.reason, w.user.id, w.user.name, new Date().toISOString());
+    const id = Number(r.lastInsertRowid);
+    db.prepare("INSERT INTO maintenance_windows (intervention_id, asset, start_utc, end_utc) VALUES (?, ?, ?, ?)")
+      .run(id, w.asset, w.start_utc, w.end_utc);
+    return db.prepare(`${MAINTENANCE_SELECT} WHERE i.id = ?`).get(id) as unknown as MaintenanceWindowRow;
+  });
+}
+
+export interface InterventionRow {
+  id: number;
+  hall_id: string;
+  type: string;
+  reason: string;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_by: string | null;
+  revoked_by_name: string | null;
+  revoke_reason: string | null;
+  asset: Asset;
+  start_utc: string;
+  end_utc: string;
+}
+
+/** Every intervention of a hall, revoked ones included, newest first. Each new type joins its details here. */
+export function listInterventions(db: DB, hallId: string): InterventionRow[] {
+  return db
     .prepare(
-      `INSERT INTO maintenance_windows (hall_id, asset, start_utc, end_utc, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `SELECT i.*, w.asset, w.start_utc, w.end_utc
+       FROM interventions i LEFT JOIN maintenance_windows w ON w.intervention_id = i.id
+       WHERE i.hall_id = ? ORDER BY i.created_at DESC, i.id DESC`,
     )
-    .run(w.hall_id, w.asset, w.start_utc, w.end_utc, w.created_by, new Date().toISOString());
-  return db.prepare(`${MAINTENANCE_SELECT} WHERE w.id = ?`).get(Number(r.lastInsertRowid)) as unknown as MaintenanceWindowRow;
+    .all(hallId) as unknown as InterventionRow[];
 }

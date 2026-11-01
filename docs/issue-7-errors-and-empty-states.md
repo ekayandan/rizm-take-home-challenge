@@ -133,7 +133,7 @@ In every step, the page must not show file paths, HTTP codes, internal IDs such 
 
 ### Saving
 
-Use `/halls/halle-3/days/2026-10-07` on layer `full`, and start steps 24 to 35 from there. Reload the layer before this group, so no window exists yet.
+Use `/halls/halle-3/days/2026-10-07` on layer `full`, and start steps 24 to 35 from there. Reload the layer before this group, so no window exists yet. Add window also needs a reason (required since #16), so type one before each click.
 
 | # | Do | Expected |
 |---|---|---|

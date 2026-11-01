@@ -19,7 +19,7 @@ const loadError = ref<string | null>(null);
 
 const canEdit = computed(() => auth.user?.role === "admin" || auth.user?.role === "operator");
 
-const form = reactive({ asset: "fan" as Asset, start: "", end: "" });
+const form = reactive({ asset: "fan" as Asset, start: "", end: "", reason: "" });
 const saving = ref(false);
 const submitError = ref<string | null>(null);
 const saved = ref<number | null>(null);
@@ -79,17 +79,18 @@ watch(() => props.hallId, () => { windows.value = []; clearMessages(); load(); r
 
 /** Both fields hold "YYYY-MM-DDTHH:MM" in the same timezone, so text order is time order. */
 const rangeError = computed(() => (form.start && form.end && form.end <= form.start ? "End must be after start." : null));
-const canSubmit = computed(() => !!form.start && !!form.end && !rangeError.value && !saving.value);
+const canSubmit = computed(() => !!form.start && !!form.end && !!form.reason.trim() && !rangeError.value && !saving.value);
 
 async function submit() {
   clearMessages();
   if (!canSubmit.value) return;
   saving.value = true;
-  const attempt: NewMaintenanceWindow = { asset: form.asset, start: form.start, end: form.end };
+  const attempt: NewMaintenanceWindow = { asset: form.asset, start: form.start, end: form.end, reason: form.reason };
   const hallId = props.hallId;
   try {
     const w = await api.addMaintenance(hallId, attempt);
     saved.value = w.id;
+    form.reason = "";
     // The save and the refresh are separate steps: a failed refresh doesn't undo the save.
     status.value = (await load()) ? "Saved." : "Saved, but the list could not be refreshed.";
   } catch (e) {
@@ -124,6 +125,7 @@ async function explainFailedSave(e: unknown, attempt: NewMaintenanceWindow, hall
   const match = windows.value.find((w) => sameWindow(w, attempt));
   if (match) {
     saved.value = match.id;
+    form.reason = "";
     status.value = "This window is saved, so there's no need to add it again.";
   } else {
     submitError.value = "Your window was not saved. Please try again.";
@@ -165,6 +167,10 @@ const onShownDay = (w: MaintenanceWindow) =>
         End
         <input v-model="form.end" type="datetime-local" name="end" required :aria-invalid="!!rangeError" />
       </label>
+      <label class="reason">
+        Reason
+        <input v-model="form.reason" type="text" name="reason" required maxlength="500" placeholder="Why is this needed?" />
+      </label>
       <button type="submit" class="primary" :disabled="!canSubmit">{{ saving ? "Saving…" : "Add window" }}</button>
     </form>
     <p v-else class="muted small">Only operators and admins can add maintenance windows.</p>
@@ -181,7 +187,7 @@ const onShownDay = (w: MaintenanceWindow) =>
     <p v-else-if="!windows.length" class="muted">No maintenance windows recorded for this hall.</p>
     <table v-if="windows.length">
       <thead>
-        <tr><th>Asset</th><th>Start</th><th>End</th><th>Duration</th><th>Added by</th></tr>
+        <tr><th>Asset</th><th>Start</th><th>End</th><th>Duration</th><th>Reason</th><th>Added by</th></tr>
       </thead>
       <tbody>
         <tr v-for="w in windows" :key="w.id" :class="{ today: onShownDay(w), fresh: w.id === saved }">
@@ -189,7 +195,8 @@ const onShownDay = (w: MaintenanceWindow) =>
           <td>{{ fmt(w.start_local) }} <span class="muted small">{{ offset(w.start_local) }}</span></td>
           <td>{{ fmt(w.end_local) }} <span class="muted small">{{ offset(w.end_local) }}</span></td>
           <td>{{ duration(w) }}</td>
-          <td class="muted">{{ w.created_by_name ?? "—" }}</td>
+          <td>{{ w.reason }}</td>
+          <td class="muted">{{ w.created_by_name }}</td>
         </tr>
       </tbody>
     </table>
@@ -203,6 +210,7 @@ const onShownDay = (w: MaintenanceWindow) =>
 .mw-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #4a535c; }
 .mw-form select, .mw-form input { margin: 0; font: inherit; padding: 4px 6px; border: 1px solid #c9ced4; border-radius: 6px; background: #fff; }
 .mw-form input[aria-invalid="true"] { border-color: #b42318; }
+.mw-form .reason { flex: 1 1 220px; }
 button.primary { font: inherit; padding: 5px 14px; border: 1px solid #1d232a; background: #1d232a; color: #fff; border-radius: 6px; cursor: pointer; }
 button.primary:disabled { opacity: 0.4; cursor: default; }
 table { margin-top: 12px; }

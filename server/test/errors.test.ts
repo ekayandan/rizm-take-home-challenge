@@ -32,7 +32,7 @@ const post = (url: string, body: unknown) =>
   fetch(url, { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(body) });
 const windows = async (hall: string) => (await (await fetch(`${base}/halls/${hall}/maintenance`, { headers: { cookie } })).json()) as unknown[];
 const addWindow = (hall: string, asset: string, start: string, end: string) =>
-  post(`${base}/halls/${hall}/maintenance`, { asset, start, end });
+  post(`${base}/halls/${hall}/maintenance`, { asset, start, end, reason: "Test" });
 
 before(async () => {
   execFileSync(process.execPath, ["--experimental-strip-types", "--experimental-sqlite", "--no-warnings", join(root, "server/src/seed.ts")], {
@@ -77,6 +77,16 @@ test("C1: windows differing in asset, time or hall are still accepted", async ()
   assert.equal((await addWindow("halle-a", "chiller", "2026-10-14T06:00", "2026-10-14T14:00")).status, 201);
   assert.equal((await addWindow("halle-a", "fan", "2026-10-14T06:00", "2026-10-14T15:00")).status, 201);
   assert.equal((await addWindow("halle-7", "fan", "2026-10-14T06:00", "2026-10-14T14:00")).status, 201);
+});
+
+test("C1: a revoked window can be recorded again", async () => {
+  const first = (await (await addWindow("halle-a", "fan", "2026-10-15T06:00", "2026-10-15T14:00")).json()) as { id: number };
+  const { openDb } = await import("../src/db.ts");
+  const db = openDb(dbPath);
+  db.prepare("UPDATE interventions SET revoked_at = ?, revoked_by = 'u-jonas', revoked_by_name = 'Jonas Weber', revoke_reason = 'Test' WHERE id = ?")
+    .run(new Date().toISOString(), first.id);
+  db.close();
+  assert.equal((await addWindow("halle-a", "fan", "2026-10-15T06:00", "2026-10-15T14:00")).status, 201);
 });
 
 test("P1: a missing database answers 503 without a file path or command", async () => {

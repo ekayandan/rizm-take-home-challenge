@@ -215,7 +215,7 @@ test("maintenance windows: operators add them, everyone on the site lists them",
   assert.deepEqual((await get(path, lena)).body, []);
 
   // Local wall-clock times in Europe/Berlin; 2026-10-06 is CEST (+02:00).
-  const r = await post(path, { asset: "boiler", start: "2026-10-06T08:00", end: "2026-10-06T12:30" }, lena);
+  const r = await post(path, { asset: "boiler", start: "2026-10-06T08:00", end: "2026-10-06T12:30", reason: "  Burner inspection " }, lena);
   assert.equal(r.status, 201);
   const w = (await r.json()) as any;
   assert.equal(w.hall_id, "halle-3");
@@ -224,9 +224,10 @@ test("maintenance windows: operators add them, everyone on the site lists them",
   assert.equal(w.end_utc, "2026-10-06T10:30:00.000Z");
   assert.equal(w.start_local, "2026-10-06T08:00+02:00");
   assert.equal(w.created_by_name, "Lena Hartmann");
+  assert.equal(w.reason, "Burner inspection");
 
   // Across the DST change (2026-10-25 03:00 CEST -> 02:00 CET); an instant with offset is accepted too.
-  assert.equal((await post(path, { asset: "fan", start: "2026-10-24T22:00", end: "2026-10-25T06:00+01:00" }, lena)).status, 201);
+  assert.equal((await post(path, { asset: "fan", start: "2026-10-24T22:00", end: "2026-10-25T06:00+01:00", reason: "Belt change" }, lena)).status, 201);
   const list = await get(path, lena);
   assert.equal(list.status, 200);
   assert.deepEqual(list.body.map((x: any) => x.asset), ["boiler", "fan"]);
@@ -235,8 +236,118 @@ test("maintenance windows: operators add them, everyone on the site lists them",
 
   const viewer = await login("petra.koch@example.com", "viewer-2026");
   assert.equal((await get(path, viewer)).body.length, 2);
-  assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00" }, viewer)).status, 403);
+  assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00", reason: "x" }, viewer)).status, 403);
   assert.equal((await get("/halls/halle-7/maintenance", lena)).body.length, 0);
+});
+
+test("interventions: history shows who, when and why, newest first, for the user's sites only", async () => {
+  const lena = await login("lena.hartmann@example.com", "operator-2026");
+  const viewer = await login("petra.koch@example.com", "viewer-2026");
+  const path = "/interventions";
+  const before = (await get(path, viewer)).body.length;
+  const add = (reason: string, start: string) =>
+    post("/halls/halle-3/maintenance", { asset: "chiller", start, end: "2026-10-08T09:00", reason, created_by_name: "Forged" }, lena);
+  assert.equal((await add("First", "2026-10-08T07:00")).status, 201);
+  assert.equal((await add("Second", "2026-10-08T08:00")).status, 201);
+
+  const { status, body } = await get(path, viewer);
+  assert.equal(status, 200);
+  assert.equal(body.length, before + 2);
+  assert.deepEqual(body.slice(0, 2).map((i: any) => i.reason), ["Second", "First"]);
+  assert.equal(body[0].type, "maintenance");
+  assert.equal(body[0].created_by_name, "Lena Hartmann");
+  assert.equal(body[0].asset, "chiller");
+  assert.equal(body[0].start_utc, "2026-10-08T06:00:00.000Z");
+  assert.equal(body[0].created_by_name, "Lena Hartmann");
+  assert.equal(body[0].site_name, (await get("/sites/nordwerk", viewer)).body.name);
+  assert.equal(body[0].hall_name, (await get("/halls/halle-3", viewer)).body.name);
+  assert.equal(body[0].timezone, "Europe/Berlin");
+  assert.equal(body[0].revoked_at, null);
+
+  // Another site's user sees none of it.
+  const tarek = await login("tarek.yilmaz@example.com", "operator-2026");
+  const theirs = await get(path, tarek);
+  assert.equal(theirs.status, 200);
+  assert.equal(theirs.body.some((i: any) => i.hall_id !== "halle-a"), false);
+  assert.equal((await get(path, "")).status, 401);
+});
+
+test("interventions: the database keeps the record intact", async () => {
+  const { openDb } = await import("../src/db.ts");
+  const { insertMaintenanceWindow, listInterventions, listMaintenanceWindows } = await import("../src/repo.ts");
+  const db = openDb(dbPath);
+  try {
+    const w = insertMaintenanceWindow(db, {
+      hall_id: "halle-a", asset: "fan", start_utc: "2026-10-09T06:00:00.000Z", end_utc: "2026-10-09T07:00:00.000Z",
+      reason: "Original", user: { id: "u", name: "Someone" },
+    });
+    const revoke = db.prepare("UPDATE interventions SET revoked_at = ?, revoked_by = 'u', revoked_by_name = ?, revoke_reason = ? WHERE id = ?");
+    const at = "2026-10-09T08:00:00.000Z";
+    const insertColumns = "(id, hall_id, type, reason, created_by, created_by_name, created_at)";
+
+    assert.throws(() => db.prepare("DELETE FROM interventions WHERE id = ?").run(w.id), /cannot be deleted/);
+    assert.throws(() => db.prepare("DELETE FROM maintenance_windows WHERE intervention_id = ?").run(w.id), /cannot be deleted/);
+    assert.throws(() => db.prepare("UPDATE maintenance_windows SET asset = 'boiler' WHERE intervention_id = ?").run(w.id), /cannot be changed/);
+    assert.throws(() => db.prepare("UPDATE interventions SET reason = 'Rewritten' WHERE id = ?").run(w.id), /only be revoked/);
+    assert.throws(() => db.prepare("UPDATE interventions SET created_by_name = 'Other' WHERE id = ?").run(w.id), /only be revoked/);
+    assert.throws(() => db.prepare("INSERT INTO interventions (hall_id, type, reason, created_by, created_by_name, created_at) VALUES ('halle-a', 'maintenance', '  ', 'u', 'U', 'now')").run(), /CHECK/);
+    // A revoke needs its who and why.
+    assert.throws(() => db.prepare("UPDATE interventions SET revoked_at = 'now' WHERE id = ?").run(w.id), /CHECK/);
+    assert.throws(() => revoke.run(at, "Someone", null, w.id), /CHECK/);
+    assert.throws(() => revoke.run(at, "Someone", "\t", w.id), /CHECK/);
+    assert.throws(() => revoke.run(at, "", "Mistake", w.id), /CHECK/);
+    assert.throws(() => revoke.run("", "Someone", "Mistake", w.id), /CHECK/);
+    assert.throws(() => db.prepare("UPDATE interventions SET revoked_at = ?, revoked_by_name = 'S', revoke_reason = 'M' WHERE id = ?").run(at, w.id), /CHECK/);
+    assert.throws(() => db.prepare(`INSERT INTO interventions ${insertColumns} VALUES (NULL, 'halle-a', 'maintenance', char(9), 'u', 'U', ?)`).run(at), /CHECK/);
+
+    // Replacing fires no delete or update trigger, and must not get past the record.
+    for (const verb of ["REPLACE", "INSERT OR REPLACE"]) {
+      assert.throws(() => db.prepare(`${verb} INTO interventions ${insertColumns} VALUES (?, 'halle-a', 'maintenance', 'Forged', 'u', 'F', ?)`).run(w.id, at), /cannot be replaced/);
+      assert.throws(() => db.prepare(`${verb} INTO maintenance_windows VALUES (?, 'chiller', ?, 'Z')`).run(w.id, at), /cannot be replaced/);
+    }
+    assert.throws(
+      () => db.prepare(`INSERT INTO interventions ${insertColumns.replace(")", ", revoked_at, revoked_by, revoked_by_name, revoke_reason)")} VALUES (NULL, 'halle-a', 'maintenance', 'R', 'u', 'U', ?, ?, 'u', 'U', 'R')`).run(at, at),
+      /start active/,
+    );
+    assert.equal(listInterventions(db, "halle-a").find((x) => x.id === w.id)!.reason, "Original");
+
+    // Revoked: gone from what is in force, still in the history, and final.
+    revoke.run(at, "Someone", "Mistake", w.id);
+    assert.equal(listMaintenanceWindows(db, "halle-a").some((x) => x.id === w.id), false);
+    const row = listInterventions(db, "halle-a").find((x) => x.id === w.id)!;
+    assert.equal(row.reason, "Original");
+    assert.equal(row.revoke_reason, "Mistake");
+    assert.throws(() => revoke.run("2026-10-09T09:00:00.000Z", "Other", "Again", w.id), /only be revoked/);
+  } finally {
+    db.close();
+  }
+});
+
+test("interventions: removing a hall or user leaves the record intact", async () => {
+  const { openDb, SCHEMA_PATH } = await import("../src/db.ts");
+  const { insertMaintenanceWindow, listInterventions } = await import("../src/repo.ts");
+  const db = openDb(":memory:");
+  try {
+    db.exec(readFileSync(SCHEMA_PATH, "utf8"));
+    db.exec(`
+      INSERT INTO sites VALUES ('s', 'Site', 'City', 'Europe/Berlin');
+      INSERT INTO halls (id, site_id, name, timezone, start_utc, dt_minutes, steps, dt_hours, constants_json, room_json, hvac_json, initial_state_json)
+        VALUES ('h', 's', 'Hall', 'Europe/Berlin', '2026-10-05T00:00:00.000Z', 15, 0, 0.25, '{}', '{}', '{}', '{}');
+      INSERT INTO users VALUES ('u', 'Some One', 'u@example.com', 'x', 'operator');
+    `);
+    insertMaintenanceWindow(db, {
+      hall_id: "h", asset: "fan", start_utc: "2026-10-09T06:00:00.000Z", end_utc: "2026-10-09T07:00:00.000Z",
+      reason: "Why", user: { id: "u", name: "Some One" },
+    });
+    db.exec("DELETE FROM users; DELETE FROM sites;");
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM halls").get() as { n: number }).n, 0);
+    const [row] = listInterventions(db, "h");
+    assert.equal(row.created_by_name, "Some One");
+    assert.equal(row.reason, "Why");
+    assert.equal(row.asset, "fan");
+  } finally {
+    db.close();
+  }
 });
 
 test("violations: measured breaches match the raw file and each belongs to one day", async () => {
@@ -282,10 +393,13 @@ test("violations: validation and access", async () => {
 test("maintenance windows: validation and access", async () => {
   const lena = await login("lena.hartmann@example.com", "operator-2026");
   const path = "/halls/halle-7/maintenance";
-  const bad = async (body: unknown) => {
-    const r = await post(path, body, lena);
+  const bad = async (body: Record<string, unknown>) => {
+    const r = await post(path, { reason: "Test", ...body }, lena);
     return { status: r.status, error: ((await r.json()) as any).error as string };
   };
+  const valid = { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00" };
+  for (const reason of [undefined, "", "   ", 42]) assert.match((await bad({ ...valid, reason })).error, /reason/);
+  assert.match((await bad({ ...valid, reason: "x".repeat(501) })).error, /reason/);
   const end = await bad({ asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T08:00" });
   assert.equal(end.status, 400);
   assert.match(end.error, /after/);
@@ -300,7 +414,7 @@ test("maintenance windows: validation and access", async () => {
 
   // Other sites look missing; no login is 401.
   const tarek = await login("tarek.yilmaz@example.com", "operator-2026");
-  assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00" }, tarek)).status, 404);
+  assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00", reason: "x" }, tarek)).status, 404);
   assert.equal((await get(path, tarek)).status, 404);
   assert.equal((await post(path, { asset: "fan", start: "2026-10-06T08:00", end: "2026-10-06T09:00" })).status, 401);
   assert.equal((await get(path, "")).status, 401);
