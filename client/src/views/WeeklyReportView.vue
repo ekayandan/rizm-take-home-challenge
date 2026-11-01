@@ -57,6 +57,7 @@ const figureRows = (f: ReportFigures) => [
   { label: "Optimized plan cost", value: eur(f.optimized_eur) },
   { label: "Cost after interventions", value: eur(f.post_intervention_eur) },
   { label: "Savings against baseline", value: eur(f.savings_eur) },
+  { label: "New plan limit breaks after interventions", value: hours(f.intervention_limit_hours) },
   { label: "Hours out of bounds", value: hours(f.hours_out_of_bounds) },
 ];
 </script>
@@ -103,8 +104,14 @@ const figureRows = (f: ReportFigures) => [
             <td>{{ h.name }}</td>
             <td>{{ eur(h.baseline_eur) }}</td>
             <td>{{ eur(h.optimized_eur) }}</td>
-            <td>{{ eur(h.post_intervention_eur) }}</td>
-            <td>{{ eur(h.savings_eur) }}</td>
+            <td>
+              {{ eur(h.post_intervention_eur) }}
+              <div v-if="h.intervention_limit_hours" class="flag">{{ hours(h.intervention_limit_hours) }} past limits</div>
+            </td>
+            <td>
+              {{ eur(h.savings_eur) }}
+              <div v-if="h.intervention_limit_hours" class="flag">overstated</div>
+            </td>
             <td>{{ hours(h.hours_out_of_bounds) }}</td>
             <td>{{ hours(h.hours_covered) }}</td>
             <td>{{ h.interventions }}</td>
@@ -115,8 +122,14 @@ const figureRows = (f: ReportFigures) => [
             <td>Total</td>
             <td>{{ eur(report.summary.baseline_eur) }}</td>
             <td>{{ eur(report.summary.optimized_eur) }}</td>
-            <td>{{ eur(report.summary.post_intervention_eur) }}</td>
-            <td>{{ eur(report.summary.savings_eur) }}</td>
+            <td>
+              {{ eur(report.summary.post_intervention_eur) }}
+              <div v-if="report.summary.intervention_limit_hours" class="flag">{{ hours(report.summary.intervention_limit_hours) }} past limits</div>
+            </td>
+            <td>
+              {{ eur(report.summary.savings_eur) }}
+              <div v-if="report.summary.intervention_limit_hours" class="flag">overstated</div>
+            </td>
             <td>{{ hours(report.summary.hours_out_of_bounds) }}</td>
             <td>{{ hours(report.summary.hours_covered) }}</td>
             <td>{{ report.summary.interventions }}</td>
@@ -136,11 +149,7 @@ const figureRows = (f: ReportFigures) => [
         </tbody>
       </table>
 
-      <p class="muted note">
-        Cost after interventions is the optimized plan with the maintenance windows now in force applied and nothing
-        else re-planned. Hours out of bounds come from measured temperature and CO2; an interval counts once however
-        many limits it breaks. Site totals add up the halls' hours.
-      </p>
+      <p v-for="note in report.notes" :key="note" class="muted note">{{ note }}</p>
     </section>
 
     <section v-for="h in report.halls" :key="h.hall_id" class="card print-page">
@@ -148,6 +157,10 @@ const figureRows = (f: ReportFigures) => [
       <p>{{ report.site.name }} · {{ report.week.start }} to {{ report.week.end }} · {{ hours(h.hours_covered) }} covered</p>
       <p v-if="!h.from" class="error">This hall has no data for this week.</p>
       <p v-if="h.hours_without_price" class="error">{{ hours(h.hours_without_price) }} without a price are not in these costs.</p>
+      <p v-if="h.intervention_limit_hours" class="error">
+        With the interventions applied, the plan breaks limits it otherwise keeps for {{ hours(h.intervention_limit_hours) }},
+        so the savings below are overstated.
+      </p>
       <table>
         <tbody>
           <tr v-for="row in figureRows(h)" :key="row.label"><th scope="row">{{ row.label }}</th><td>{{ row.value }}</td></tr>
@@ -176,5 +189,6 @@ const figureRows = (f: ReportFigures) => [
 th, td { font-size: 13px; padding: 6px 5px; }
 .total td { font-weight: 600; border-top: 2px solid #1d232a; }
 h2 { margin-top: 0; }
-.note { font-size: 13px; margin-bottom: 0; }
+.note { font-size: 13px; margin: 8px 0 0; }
+.flag { color: #b42318; font-size: 12px; font-weight: 400; white-space: nowrap; }
 </style>

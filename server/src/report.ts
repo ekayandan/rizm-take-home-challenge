@@ -2,7 +2,7 @@
  * Weekly report of a site: what the plans cost, how long the measured state was out of bounds
  * and the most expensive intervals. The CSV is written from the same data as the page.
  */
-import { simulate, type Instance, type Schedule } from "../checker/checker.ts";
+import { simulate, type Instance, type Report, type Schedule, type Violation } from "../checker/checker.ts";
 import { BadRequest } from "./cost.ts";
 import type { DB } from "./db.ts";
 import {
@@ -30,8 +30,10 @@ export interface ReportFigures {
   baseline_eur: number | null;
   optimized_eur: number | null;
   post_intervention_eur: number | null;
-  /** Baseline minus post-intervention. */
+  /** Baseline minus post-intervention. Overstated when intervention_limit_hours is above zero. */
   savings_eur: number | null;
+  /** Hours in which the plan, once the windows are applied, breaks limits it otherwise keeps. */
+  intervention_limit_hours: number;
   hours_out_of_bounds: number;
   /** Hours of the week with a price; the clock-change week has 169 when complete. */
   hours_covered: number;
@@ -51,6 +53,8 @@ export interface HallReport extends ReportFigures {
 export interface WeeklyReport {
   site: { id: string; name: string; city: string };
   week: { start: string; end: string; partial: boolean };
+  /** How to read the figures; the page and the CSV both carry them. */
+  notes: string[];
   summary: ReportFigures;
   halls: HallReport[];
 }
@@ -109,6 +113,13 @@ function stepCosts(inst: Instance, schedule: Schedule): number[] {
   return simulate(inst, schedule, { trace: true }).trace!.cost_eur;
 }
 
+/** The steps from `first` to `last` where `after` breaks a limit that `before` keeps. */
+function newlyBrokenSteps(before: Report, after: Report, first: number, last: number): Set<number> {
+  const key = (v: Violation) => `${v.step} ${v.constraint}`;
+  const known = new Set(before.violations.map(key));
+  return new Set(after.violations.filter((v) => v.step >= first && v.step <= last && !known.has(key(v))).map((v) => v.step));
+}
+
 const sumOver = (costs: number[], steps: StepRow[]) => steps.reduce((a, r) => a + costs[r.step], 0);
 
 const topOf = (intervals: TopInterval[]) =>
@@ -131,6 +142,7 @@ function hallReport(db: DB, hall: HallRow, start: string, end: string): { report
     optimized_eur: null,
     post_intervention_eur: null,
     savings_eur: null,
+    intervention_limit_hours: 0,
     hours_out_of_bounds: 0,
     hours_covered: priced.length * hall.dt_hours,
     hours_without_price: (inWeek.length - priced.length) * hall.dt_hours,
@@ -151,7 +163,9 @@ function hallReport(db: DB, hall: HallRow, start: string, end: string): { report
 
   const optimized = loadSchedule(db, hall.id, "optimized")!;
   figures.optimized_eur = sumOver(stepCosts(inst, optimized), priced);
-  const costs = stepCosts(inst, applyMaintenance(optimized, rows.map((r) => r.ts_utc), hall.dt_hours, windows));
+  const blocked = applyMaintenance(optimized, rows.map((r) => r.ts_utc), hall.dt_hours, windows);
+  const costs = stepCosts(inst, blocked);
+  figures.intervention_limit_hours = newlyBrokenSteps(simulate(inst, optimized), simulate(inst, blocked), firstState, inWeek.at(-1)!.step + 1).size * hall.dt_hours;
   figures.post_intervention_eur = sumOver(costs, priced);
   if (figures.baseline_eur !== null) figures.savings_eur = figures.baseline_eur - figures.post_intervention_eur;
 
@@ -175,6 +189,14 @@ function totalOf(halls: HallReport[], key: "baseline_eur" | "optimized_eur" | "p
   return halls.reduce((a, h) => a + (h[key] as number), 0);
 }
 
+const METHOD_NOTES = [
+  "Cost after interventions is the optimized plan with the maintenance windows now in force applied and nothing else re-planned. Blocking equipment lowers this cost by not running it, so that drop is not a saving in itself.",
+  "Hours out of bounds come from measured temperature and CO2; an interval counts once however many limits it breaks. Site totals add up the halls' hours.",
+  "Figures use the windows in force when the report is generated.",
+];
+
+const hoursText = (v: number) => v.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+
 /** The report of the week starting on Monday `week`, in the local dates of the site's halls. */
 export function weeklyReport(db: DB, site: SiteRow, week: string): WeeklyReport {
   requireMonday(week);
@@ -182,15 +204,20 @@ export function weeklyReport(db: DB, site: SiteRow, week: string): WeeklyReport 
   const results = listHalls(db, site.id).map((h) => hallReport(db, h, week, end));
   const halls = results.map((r) => r.report);
   if (!halls.some((h) => h.from)) throw new BadRequest(`no data for site '${site.id}' in the week of ${week}`);
-  const sum = (key: "hours_out_of_bounds" | "hours_covered" | "hours_without_price" | "interventions") => halls.reduce((a, h) => a + h[key], 0);
+  const sum = (key: "intervention_limit_hours" | "hours_out_of_bounds" | "hours_covered" | "hours_without_price" | "interventions") => halls.reduce((a, h) => a + h[key], 0);
+  const limitHours = sum("intervention_limit_hours");
   return {
     site: { id: site.id, name: site.name, city: site.city },
     week: { start: week, end, partial: halls.some((h) => h.from !== week || h.to !== end || h.hours_without_price > 0) },
+    notes: limitHours > 0
+      ? [`Savings are overstated: with the interventions applied, the plan breaks limits it otherwise keeps for ${hoursText(limitHours)} hall-hours.`, ...METHOD_NOTES]
+      : METHOD_NOTES,
     summary: {
       baseline_eur: totalOf(halls, "baseline_eur"),
       optimized_eur: totalOf(halls, "optimized_eur"),
       post_intervention_eur: totalOf(halls, "post_intervention_eur"),
       savings_eur: totalOf(halls, "savings_eur"),
+      intervention_limit_hours: limitHours,
       hours_out_of_bounds: sum("hours_out_of_bounds"),
       hours_covered: sum("hours_covered"),
       hours_without_price: sum("hours_without_price"),
@@ -210,11 +237,11 @@ function text(v: string): string {
   return /[;"\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
-const FIGURES_HEADER = ["Baseline cost (EUR)", "Optimized cost (EUR)", "Post-intervention cost (EUR)", "Savings (EUR)", "Hours out of bounds", "Hours covered", "Hours without price", "Interventions"];
+const FIGURES_HEADER = ["Baseline cost (EUR)", "Optimized cost (EUR)", "Post-intervention cost (EUR)", "Savings (EUR)", "Hours out of bounds", "Hours covered", "Hours without price", "Interventions", "Hours of new plan limit breaks after interventions"];
 
 const figureCells = (f: ReportFigures) => [
   num(f.baseline_eur), num(f.optimized_eur), num(f.post_intervention_eur), num(f.savings_eur),
-  num(f.hours_out_of_bounds), num(f.hours_covered), num(f.hours_without_price), String(f.interventions),
+  num(f.hours_out_of_bounds), num(f.hours_covered), num(f.hours_without_price), String(f.interventions), num(f.intervention_limit_hours),
 ];
 
 const intervalLines = (intervals: TopInterval[]) => [
@@ -231,6 +258,7 @@ export function reportCsv(r: WeeklyReport): string {
   const lines: string[][] = [
     ["Weekly report", text(r.site.name)],
     ["Week", r.week.start, r.week.end, ...(r.week.partial ? ["Partial week"] : [])],
+    ...r.notes.map((n) => ["Note", text(n)]),
     [],
     ["Site summary"],
     ["Hall", ...FIGURES_HEADER],

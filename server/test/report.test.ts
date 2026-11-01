@@ -136,6 +136,13 @@ test("the post-intervention cost applies windows in force, and stops counting a 
   const { id } = (await r.json()) as any;
   const during = (await report("suedwerk", "2026-10-05")).body.halls[0];
   assert.equal(during.post_intervention_eur, 0);
+  assert.ok(during.intervention_limit_hours > 0, "stopping the fan breaks limits the plan otherwise keeps");
+  assert.equal(before.intervention_limit_hours, 0);
+  const flagged = (await report("suedwerk", "2026-10-05")).body;
+  assert.match(flagged.notes[0], /^Savings are overstated/);
+  assert.equal(flagged.summary.intervention_limit_hours, during.intervention_limit_hours);
+  const csv = await (await fetch(`${base}/sites/suedwerk/weekly-report.csv?week=2026-10-05`, { headers: { cookie } })).text();
+  assert.ok(csv.includes("Note;Savings are overstated"));
   assert.equal(during.optimized_eur, before.optimized_eur);
   assert.equal(during.interventions, 1);
   assert.equal((await report("suedwerk", "2026-10-12")).body.halls[0].interventions, 0, "the window ends as that week starts");
@@ -143,6 +150,22 @@ test("the post-intervention cost applies windows in force, and stops counting a 
   db.prepare("UPDATE interventions SET revoked_at = ?, revoked_by = 'x', revoked_by_name = 'x', revoke_reason = 'x' WHERE id = ?").run(new Date().toISOString(), id);
   const afterRevoke = (await report("suedwerk", "2026-10-05")).body.halls[0];
   assert.equal(afterRevoke.post_intervention_eur, before.post_intervention_eur);
+  assert.equal(afterRevoke.intervention_limit_hours, 0);
+  assert.doesNotMatch((await report("suedwerk", "2026-10-05")).body.notes[0], /overstated/);
+});
+
+test("a boiler window that leaves the hall too cold is flagged, in the week it hits only", async () => {
+  const added = await fetch(`${base}/halls/halle-3/maintenance`, {
+    method: "POST", headers: { "content-type": "application/json", cookie: admin },
+    body: JSON.stringify({ asset: "boiler", start: "2026-10-26T00:00", end: "2026-10-30T00:00", reason: "Test" }),
+  });
+  const { id } = (await added.json()) as any;
+  const hit = (await report("nordwerk", "2026-10-26")).body.halls.find((h: any) => h.hall_id === "halle-3");
+  const earlier = (await report("nordwerk", "2026-10-19")).body.halls.find((h: any) => h.hall_id === "halle-3");
+  db.prepare("UPDATE interventions SET revoked_at = ?, revoked_by = 'x', revoked_by_name = 'x', revoke_reason = 'x' WHERE id = ?").run(new Date().toISOString(), id);
+  assert.ok(hit.post_intervention_eur < hit.optimized_eur);
+  assert.ok(hit.intervention_limit_hours > 0);
+  assert.equal(earlier.intervention_limit_hours, 0);
 });
 
 test("applyMaintenance zeroes only the blocked asset, in every step a window touches", () => {
@@ -181,6 +204,8 @@ test("the CSV download opens in German Excel and follows the report's order", as
   assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
   const lines = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes).slice(1).split("\r\n");
   assert.equal(lines[0], "Weekly report;Nordwerk Stade");
+  assert.ok(lines.some((l) => l.startsWith("Note;Cost after interventions") && l.includes("nothing else re-planned")));
+  assert.ok(lines.some((l) => l.startsWith("Note;") && l.includes("hall")));
   const blocks = lines.filter((l) => l === "Site summary" || l.startsWith("Hall;Halle"));
   assert.deepEqual(blocks, ["Site summary", "Hall;Halle 3 Montage", "Hall;Halle 7 Endmontage"]);
   const { body } = await report("nordwerk", CLOCK_CHANGE_WEEK);
@@ -188,10 +213,11 @@ test("the CSV download opens in German Excel and follows the report's order", as
 });
 
 test("the CSV escapes text and leaves unknown figures empty", () => {
-  const figures = { baseline_eur: null, optimized_eur: 1.5, post_intervention_eur: 1.5, savings_eur: null, hours_out_of_bounds: 0.25, hours_covered: 1, hours_without_price: 0, interventions: 0, top_intervals: [] };
+  const figures = { baseline_eur: null, optimized_eur: 1.5, post_intervention_eur: 1.5, savings_eur: null, intervention_limit_hours: 0, hours_out_of_bounds: 0.25, hours_covered: 1, hours_without_price: 0, interventions: 0, top_intervals: [] };
   const r: WeeklyReport = {
     site: { id: "s", name: 'A;"B"', city: "C" },
     week: { start: "2026-10-05", end: "2026-10-11", partial: true },
+    notes: ["A note"],
     summary: figures,
     halls: [{ ...figures, hall_id: "h", name: "=cmd()", from: null, to: null }],
   };

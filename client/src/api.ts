@@ -165,6 +165,7 @@ export interface ReportFigures {
   optimized_eur: number | null;
   post_intervention_eur: number | null;
   savings_eur: number | null;
+  intervention_limit_hours: number;
   hours_out_of_bounds: number;
   hours_covered: number;
   hours_without_price: number;
@@ -175,6 +176,7 @@ export interface HallReport extends ReportFigures { hall_id: string; name: strin
 export interface WeeklyReport {
   site: { id: string; name: string; city: string };
   week: { start: string; end: string; partial: boolean };
+  notes: string[];
   summary: ReportFigures;
   halls: HallReport[];
 }
