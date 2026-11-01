@@ -7,7 +7,8 @@
  * - "step" lines have N values: value k holds over step k (from state point k to k+1).
  * - "state" lines and bounds have N+1 values, one per state point.
  */
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeMount, onBeforeUnmount, onBeforeUpdate, onMounted, onUpdated, ref } from "vue";
+import { perfLog, timed } from "../perf";
 import TermHelp from "./TermHelp.vue";
 import type { GlossaryTerm } from "../glossary";
 
@@ -51,11 +52,20 @@ export interface ChartPanel {
   /** Marked with a dot on the line and a shaded interval leading up to the state point. */
   violations?: ChartViolation[];
 }
+/** A local day on a multi-day chart. */
+export interface ChartDay {
+  /** Step index of the day's first step. */
+  start: number;
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+}
 
 const props = defineProps<{
   /** N+1 local times HH:MM, one per state point. */
   times: string[];
   panels: ChartPanel[];
+  /** Multi-day charts: the first step of each local day, in order. Replaces the HH:MM axis labels. */
+  days?: ChartDay[];
 }>();
 
 const M = { left: 56, right: 14, top: 22, bottom: 6 };
@@ -76,41 +86,87 @@ const plotW = computed(() => width.value - M.left - M.right);
 const x = (i: number) => M.left + (i / n.value) * plotW.value;
 
 function niceTicks(lo: number, hi: number, count = 4): number[] {
-  const span = hi - lo || 1;
-  const raw = span / count;
+  // Halved so the span of extreme values stays finite.
+  const raw = (((hi / 2 - lo / 2) / count) * 2) || 1 / count;
   const mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((s) => s >= raw) ?? raw;
+  const step = [1, 2, 2.5, 5, 10].map((f) => f * mag).find((s) => s >= raw && Number.isFinite(s)) ?? raw;
+  const first = Math.ceil(lo / step);
   const out: number[] = [];
-  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  // Counted, not summed: adding the step to a huge value may not change it.
+  for (let k = 0; k <= count + 1; k++) {
+    const v = (first + k) * step;
+    if (!(v <= hi + 1e-9)) break;
+    out.push(+v.toFixed(10));
+  }
   return out;
 }
 
 const finite = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
 
+const clampFinite = (v: number) => Math.min(Number.MAX_VALUE, Math.max(-Number.MAX_VALUE, v));
+
+/** Smallest and largest finite value; a loop because series can be too long to spread. */
+function extent(lists: readonly (readonly (number | null)[])[]): { lo: number; hi: number } | null {
+  let lo = Infinity, hi = -Infinity;
+  for (const list of lists) {
+    for (const v of list) {
+      if (!finite(v)) continue;
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+  }
+  return lo <= hi ? { lo, hi } : null;
+}
+
 /** On narrow charts (the 1024 px tablet) the legend gets its own row under the title. */
 const LEGEND_ROW = 15;
 const stackedHeader = computed(() => width.value < 720);
 
-const layout = computed(() => {
+const layout = computed(() => timed("chart layout", () => {
   let top = 0;
   return props.panels.map((p) => {
-    const vals = [
-      ...p.lines.flatMap((l) => l.values.filter(finite)),
-      ...(p.bands ?? []).flatMap((b) => [...(b.lower ?? []), ...(b.upper ?? [])]),
-      ...(p.include ?? []),
-    ];
-    let lo = vals.length ? Math.min(...vals) : 0;
-    let hi = vals.length ? Math.max(...vals) : 1;
-    if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
-    const pad = (hi - lo) * 0.06;
-    const ticks = niceTicks(lo - (lo === 0 ? 0 : pad), hi + pad, p.height >= 100 ? 5 : 3);
-    const y0 = Math.min(ticks[0], lo), y1 = Math.max(ticks.at(-1)!, hi);
+    const range = extent([
+      ...p.lines.map((l) => l.values),
+      ...(p.bands ?? []).flatMap((b) => [b.lower ?? [], b.upper ?? []]),
+      p.include ?? [],
+    ]);
+    let lo = range ? range.lo : 0;
+    let hi = range ? range.hi : 1;
+    // Flat, relative to the size of the values: large numbers cannot resolve a smaller gap.
+    const size = Math.max(Math.abs(lo), Math.abs(hi));
+    if (hi - lo < Math.max(1e-9, size * 1e-12)) {
+      const widen = Math.max(1, size * 1e-12);
+      lo = clampFinite(lo - widen);
+      hi = clampFinite(hi + widen);
+    }
+    const pad = (hi / 2 - lo / 2) * 0.12;
+    const ticks = niceTicks(clampFinite(lo - (lo === 0 ? 0 : pad)), clampFinite(hi + pad), p.height >= 100 ? 5 : 3);
+    const y0 = Math.min(ticks[0] ?? lo, lo), y1 = Math.max(ticks.at(-1) ?? hi, hi);
     const header = M.top + (stackedHeader.value ? LEGEND_ROW : 0);
     const t = top + header, h = p.height;
-    const y = (v: number) => t + h - ((v - y0) / (y1 - y0 || 1)) * h;
+    const y = (v: number) => t + h - ((v / 2 - y0 / 2) / (y1 / 2 - y0 / 2 || 1)) * h;
     top += header + h + M.bottom + GAP;
     return { p, top: t, h, y, y0, y1, ticks };
   });
+}));
+
+// Render plus DOM patch, the hover latency and the first paint of the chart.
+let renderStart = 0;
+let hoverStart = 0;
+const logRender = (label: string) => {
+  const nodes = root.value?.querySelectorAll("svg *").length ?? 0;
+  perfLog(label, performance.now() - renderStart, `${n.value} steps, ${nodes} svg nodes`);
+};
+onBeforeMount(() => (renderStart = performance.now()));
+onBeforeUpdate(() => (renderStart = performance.now()));
+onMounted(() => {
+  logRender("chart mount");
+  requestAnimationFrame(() => setTimeout(() => perfLog("chart first paint", performance.now() - renderStart)));
+});
+onUpdated(() => {
+  logRender("chart update");
+  if (hoverStart) perfLog("hover to update", performance.now() - hoverStart);
+  hoverStart = 0;
 });
 
 const height = computed(() => {
@@ -171,10 +227,33 @@ function boundPath(vals: number[], y: (v: number) => number): string {
   return d;
 }
 
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const weekday = (date: string) => {
+  const [year, month, day] = date.split("-").map(Number);
+  return WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+};
+/** "Mo 12.10." */
+const dayLabel = (date: string) => `${weekday(date)} ${date.slice(8, 10)}.${date.slice(5, 7)}.`;
+/** "Mo 12", which fits one day of seven at the narrowest chart. */
+const shortDayLabel = (date: string) => `${weekday(date)} ${date.slice(8, 10)}`;
+
+/** Upper estimate of a tick character's width (11 px font), plus the gap kept between labels. */
+const TICK_CHAR_W = 7;
+const TICK_GAP = 4;
+
+/** One label per day, centred on the day; `i` is the grid line, `at` the label position. */
+function dayTicks(days: ChartDay[]) {
+  const ticks = days.map((d, k) => ({ i: d.start, at: (d.start + (days[k + 1]?.start ?? n.value)) / 2, date: d.date }));
+  const room = Math.min(...ticks.slice(1).map((t, k) => ((t.at - ticks[k].at) / n.value) * plotW.value));
+  const full = ticks.every((t) => dayLabel(t.date).length * TICK_CHAR_W + TICK_GAP <= room);
+  return ticks.map((t) => ({ t: full ? dayLabel(t.date) : shortDayLabel(t.date), i: t.i, at: t.at }));
+}
+
 const xTicks = computed(() => {
+  if (props.days?.length) return dayTicks(props.days);
   const every = width.value < 560 ? 6 : 3;
   return props.times
-    .map((t, i) => ({ t, i }))
+    .map((t, i) => ({ t, i, at: i }))
     .filter(({ t, i }) => t.endsWith(":00") && (+t.slice(0, 2) % every === 0) && i < props.times.length - 1);
 });
 
@@ -182,10 +261,21 @@ const xTicks = computed(() => {
 const hover = ref<number | null>(null);
 function onMove(e: PointerEvent) {
   const svg = e.currentTarget as SVGSVGElement;
+  hoverStart = performance.now();
   const px = e.clientX - svg.getBoundingClientRect().left;
   if (px < M.left || px > width.value - M.right) { hover.value = null; return; }
   hover.value = Math.min(n.value - 1, Math.max(0, Math.floor(((px - M.left) / plotW.value) * n.value)));
 }
+
+/** The day of the hovered step; only looks at the day list, not the series. */
+const hoverDay = computed(() => {
+  const h = hover.value;
+  const days = props.days;
+  if (h === null || !days?.length) return "";
+  let day = days[0];
+  for (const d of days) if (d.start <= h) day = d;
+  return `${dayLabel(day.date)} `;
+});
 
 /** Hovering a step shows the state at its end, so that is the violation to explain. */
 const hoverNotes = computed(() => {
@@ -210,7 +300,7 @@ function valueAt(l: ChartLine, i: number): string {
   <div ref="root" class="day-chart">
     <div class="readout" aria-live="polite">
       <template v-if="hover !== null">
-        {{ times[hover] }}–{{ times[hover + 1] }}
+        {{ hoverDay }}{{ times[hover] }}–{{ times[hover + 1] }}
         <span v-for="note in hoverNotes" :key="note" class="note">· {{ note }}</span>
       </template>
       <span v-else class="muted">Hover the chart for values</span>
@@ -234,21 +324,8 @@ function valueAt(l: ChartLine, i: number): string {
       @pointermove="onMove"
       @pointerleave="hover = null"
     >
-      <g v-for="l in layout" :key="l.p.id">
-        <!-- header: legend, hovered values -->
-        <text :x="width - M.right" :y="l.top - 8" text-anchor="end" class="legend">
-          <template v-for="line in l.p.lines" :key="line.label">
-            <tspan :fill="line.color" dx="10">{{ line.dashed ? "┅" : "━" }}</tspan>
-            <tspan dx="3">{{ line.label }}<template v-if="hover !== null && l.p.lines.length">: {{ valueAt(line, line.kind === 'state' ? hover + 1 : hover) }}</template></tspan>
-          </template>
-          <template v-for="b in l.p.bands ?? []" :key="b.label">
-            <tspan class="band-key" dx="10">▮</tspan><tspan dx="3">{{ b.label }}</tspan>
-          </template>
-          <template v-if="l.p.violations?.length">
-            <tspan class="violation-key" dx="10">●</tspan><tspan dx="3">Limit broken</tspan>
-          </template>
-        </text>
-
+      <!-- Everything but the legend and highlight: skipped on hover, so hovering stays cheap. -->
+      <g v-for="l in layout" :key="l.p.id" v-memo="[l, width, xTicks]">
         <rect :x="M.left" :y="l.top" :width="plotW" :height="l.h" class="plot-bg" />
         <path v-for="b in l.p.bands ?? []" :key="b.label" :d="bandPath(b, l)" class="band" />
         <template v-for="b in l.p.bands ?? []" :key="b.label + '-lines'">
@@ -291,8 +368,24 @@ function valueAt(l: ChartLine, i: number): string {
         </g>
       </g>
 
+      <!-- Legends carry the hovered values, so they re-render on hover. -->
+      <g v-for="l in layout" :key="l.p.id + '-legend'">
+        <text :x="width - M.right" :y="l.top - 8" text-anchor="end" class="legend">
+          <template v-for="line in l.p.lines" :key="line.label">
+            <tspan :fill="line.color" dx="10">{{ line.dashed ? "┅" : "━" }}</tspan>
+            <tspan dx="3">{{ line.label }}<template v-if="hover !== null && l.p.lines.length">: {{ valueAt(line, line.kind === 'state' ? hover + 1 : hover) }}</template></tspan>
+          </template>
+          <template v-for="b in l.p.bands ?? []" :key="b.label">
+            <tspan class="band-key" dx="10">▮</tspan><tspan dx="3">{{ b.label }}</tspan>
+          </template>
+          <template v-if="l.p.violations?.length">
+            <tspan class="violation-key" dx="10">●</tspan><tspan dx="3">Limit broken</tspan>
+          </template>
+        </text>
+      </g>
+
       <g class="x-axis">
-        <text v-for="t in xTicks" :key="t.i" :x="x(t.i)" :y="height - 6" text-anchor="middle" class="tick">{{ t.t }}</text>
+        <text v-for="t in xTicks" :key="t.i" :x="x(t.at)" :y="height - 6" text-anchor="middle" class="tick">{{ t.t }}</text>
       </g>
 
       <g v-if="hover !== null" class="hover">

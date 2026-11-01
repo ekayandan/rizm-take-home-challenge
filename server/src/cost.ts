@@ -1,6 +1,7 @@
 /** Cost of a hall's schedule for one local day, via the checker's simulate(). */
 import { simulate, type Instance, type Report, type Schedule } from "../checker/checker.ts";
 import type { DB } from "./db.ts";
+import { timed } from "./perf.ts";
 import { getSteps, loadInstance, loadSchedule, stepRange } from "./repo.ts";
 
 export type InitialStateSource = "simulated" | "measured";
@@ -70,9 +71,9 @@ export function dayCost(
   opts: { initial?: InitialStateSource; trace?: boolean } = {},
 ): DayCost {
   const initialSource = opts.initial ?? "simulated";
-  const inst = loadInstance(db, hallId);
+  const inst = timed(`dayCost ${date} load instance`, () => loadInstance(db, hallId));
   if (!inst) throw new NotFound(`hall '${hallId}' not found`);
-  const sched = loadSchedule(db, hallId, scheduleName);
+  const sched = timed(`dayCost ${date} load schedule`, () => loadSchedule(db, hallId, scheduleName));
   if (!sched) throw new NotFound(`hall '${hallId}' has no schedule '${scheduleName}'`);
   const range = stepRange(db, hallId, date, date);
   if (!range) throw new BadRequest(`date ${date} is outside the horizon of hall '${hallId}'`);
@@ -89,10 +90,12 @@ export function dayCost(
   } else if (start === 0) {
     initial = inst.initial_state;
   } else {
-    initial = simulate(sliceInstance(inst, 0, start, inst.initial_state), sliceSchedule(sched, 0, start)).final_state;
+    initial = timed(`dayCost ${date} simulate ${start} prior steps`, () =>
+      simulate(sliceInstance(inst, 0, start, inst.initial_state), sliceSchedule(sched, 0, start)).final_state);
   }
 
-  const report = simulate(sliceInstance(inst, start, end, initial), sliceSchedule(sched, start, end), { trace: opts.trace });
+  const report = timed(`dayCost ${date} simulate day`, () =>
+    simulate(sliceInstance(inst, start, end, initial), sliceSchedule(sched, start, end), { trace: opts.trace }));
   const violations = report.violations
     .filter((v) => !(start > 0 && v.step === 0 && STATE_CONSTRAINTS.has(v.constraint)))
     .map((v) => ({ ...v, step: v.step + start, ts_utc: stepRows[v.step].ts_utc }));
