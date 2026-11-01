@@ -67,12 +67,12 @@ export function dayCost(
   hallId: string,
   scheduleName: string,
   date: string,
-  opts: { initial?: InitialStateSource; trace?: boolean } = {},
+  opts: { initial?: InitialStateSource; trace?: boolean; schedule?: Schedule } = {},
 ): DayCost {
   const initialSource = opts.initial ?? "simulated";
   const inst = loadInstance(db, hallId);
   if (!inst) throw new NotFound(`hall '${hallId}' not found`);
-  const sched = loadSchedule(db, hallId, scheduleName);
+  const sched = opts.schedule ?? loadSchedule(db, hallId, scheduleName);
   if (!sched) throw new NotFound(`hall '${hallId}' has no schedule '${scheduleName}'`);
   const range = stepRange(db, hallId, date, date);
   if (!range) throw new BadRequest(`date ${date} is outside the horizon of hall '${hallId}'`);

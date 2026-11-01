@@ -5,11 +5,12 @@
  * touch the shown day are highlighted. Times are wall-clock times in the hall's timezone.
  */
 import { computed, reactive, ref, watch } from "vue";
-import { api, ASSETS, outcomeUnknown, Unauthorized, type Asset, type MaintenanceWindow, type NewMaintenanceWindow } from "../api";
+import { api, ASSETS, outcomeUnknown, Unauthorized, type Asset, type MaintenanceWindow, type NewMaintenanceWindow, type ProposedWindow } from "../api";
 import { useAuthStore } from "../stores/auth";
 import TermHelp from "./TermHelp.vue";
 
 const props = defineProps<{ hallId: string; date: string; timezone: string }>();
+const emit = defineEmits<{ preview: [window: ProposedWindow]; "preview-clear": []; saved: [] }>();
 const auth = useAuthStore();
 
 const ASSET_LABELS: Record<Asset, string> = { fan: "Fan", boiler: "Boiler", chiller: "Chiller" };
@@ -92,6 +93,7 @@ async function submit() {
     const w = await api.addMaintenance(hallId, attempt);
     saved.value = w.id;
     form.reason = "";
+    emit("saved");
     // The save and the refresh are separate steps: a failed refresh doesn't undo the save.
     status.value = (await load()) ? "Saved." : "Saved, but the list could not be refreshed.";
   } catch (e) {
@@ -100,6 +102,13 @@ async function submit() {
     saving.value = false;
   }
 }
+
+const canPreview = computed(() => !!form.start && !!form.end && !rangeError.value);
+function preview() {
+  if (canPreview.value) emit("preview", { asset: form.asset, start: form.start, end: form.end });
+}
+// A preview answers for the times it was asked about, so changing them withdraws it.
+watch(() => [form.asset, form.start, form.end], () => emit("preview-clear"));
 
 /** The list gives local times with an offset; the form holds the same local times without one. */
 const sameWindow = (w: MaintenanceWindow, a: NewMaintenanceWindow) =>
@@ -127,6 +136,7 @@ async function explainFailedSave(e: unknown, attempt: NewMaintenanceWindow, hall
   if (match) {
     saved.value = match.id;
     form.reason = "";
+    emit("saved");
     status.value = "This window is saved, so there's no need to add it again.";
   } else {
     submitError.value = "Your window was not saved. Please try again.";
@@ -172,9 +182,11 @@ const onShownDay = (w: MaintenanceWindow) =>
         Reason
         <input v-model="form.reason" type="text" name="reason" required maxlength="500" placeholder="Why is this needed?" />
       </label>
+      <button type="button" class="secondary" :disabled="!canPreview" @click="preview">Preview consequences</button>
       <button type="submit" class="primary" :disabled="!canSubmit">{{ saving ? "Saving…" : "Add window" }}</button>
     </form>
     <p v-else class="muted small">Only operators and admins can add maintenance windows.</p>
+    <slot name="preview" />
     <p v-if="canEdit && rangeError" class="error small" role="alert">{{ rangeError }}</p>
     <p v-if="submitError" class="error small" role="alert">{{ submitError }}</p>
     <p v-if="status" class="saved small" role="status">{{ status }}</p>
@@ -213,6 +225,8 @@ const onShownDay = (w: MaintenanceWindow) =>
 .mw-form input[aria-invalid="true"] { border-color: #b42318; }
 .mw-form .reason { flex: 1 1 220px; }
 button.primary { font: inherit; padding: 5px 14px; border: 1px solid #1d232a; background: #1d232a; color: #fff; border-radius: 6px; cursor: pointer; }
+button.secondary { font: inherit; padding: 5px 14px; border: 1px solid #c9ced4; background: #fff; border-radius: 6px; cursor: pointer; }
+button.secondary:disabled { opacity: 0.4; cursor: default; }
 button.primary:disabled { opacity: 0.4; cursor: default; }
 table { margin-top: 12px; }
 tr.today td { background: #fff8e1; }

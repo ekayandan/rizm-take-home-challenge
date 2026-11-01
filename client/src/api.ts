@@ -56,6 +56,33 @@ export interface DayCostTraced extends DayCostReport {
   violations: Violation[];
   trace: Trace;
 }
+export interface NewViolationGroup {
+  constraint: string;
+  count: number;
+  worst: number;
+  first_local: string;
+  last_local: string;
+}
+/** A schedule with maintenance blocked and nothing re-planned, against the stored schedule. */
+export interface Consequences {
+  hall_id: string;
+  schedule: string;
+  date: string;
+  windows: { asset: Asset; start_utc: string; end_utc: string }[];
+  blocked_steps: number;
+  changed_steps: number;
+  plan_changed: boolean;
+  still_feasible: boolean;
+  new_violations: NewViolationGroup[];
+  new_violations_total: number;
+  new_violations_on_day: number;
+  cost_change_on_day_eur: number;
+  cost_change_total_eur: number;
+  plan_day: DayCostTraced;
+  after_day: DayCostTraced;
+  after_controls: ScheduleSeries;
+}
+export interface ProposedWindow { asset: Asset; start: string; end: string }
 export interface ScheduleSeries {
   mass_flow_kg_per_s: number[];
   recirculation: number[];
@@ -252,6 +279,10 @@ export const api = {
   maintenance: (id: string) => get<MaintenanceWindow[]>(`/halls/${encodeURIComponent(id)}/maintenance`),
   addMaintenance: (id: string, w: NewMaintenanceWindow) =>
     post<MaintenanceWindow>(`/halls/${encodeURIComponent(id)}/maintenance`, w),
+  consequences: (id: string, date: string, schedule: string, proposed?: ProposedWindow) => {
+    const q = new URLSearchParams({ date, schedule, ...proposed });
+    return get<Consequences>(`/halls/${encodeURIComponent(id)}/consequences?${q}`);
+  },
   interventions: () => get<Intervention[]>("/interventions"),
   siteDayCost: (id: string, date: string) =>
     get<SiteDayCost>(`/sites/${encodeURIComponent(id)}/cost?date=${date}&schedule=optimized`),
