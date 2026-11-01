@@ -29,6 +29,7 @@ async function logout() {
         <RouterLink v-for="hall in site.halls" :key="hall.id" :to="{ name: 'hall', params: { hallId: hall.id } }">
           {{ hall.name }}
         </RouterLink>
+        <RouterLink :to="{ name: 'weekly-report', params: { siteId: site.id } }">Weekly report</RouterLink>
       </nav>
       <nav>
         <RouterLink :to="{ name: 'interventions' }">Intervention history</RouterLink>

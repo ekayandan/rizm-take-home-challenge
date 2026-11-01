@@ -30,6 +30,8 @@
  *   /api/sites/:siteId/cost?date=[&schedule=optimized]
  *                                               cost of a schedule for one local day, per hall
  *                                               and summed over the site's halls
+ *   /api/sites/:siteId/weekly-report?week=      the site's report for the week starting on that Monday
+ *   /api/sites/:siteId/weekly-report.csv?week=  the same report as a CSV download
  *   /api/halls[?site=<siteId>]                  halls
  *   /api/halls/:hallId                          hall metadata, physical model, days, schedules
  *   /api/halls/:hallId/series?from=&to=[&schedules=a,b]
@@ -54,6 +56,7 @@ import {
 } from "./repo.ts";
 import { formatOffset, isIsoDate, localParts, localToUtc } from "./time.ts";
 import { measuredViolations } from "./violations.ts";
+import { reportCsv, reportFilename, weeklyReport } from "./report.ts";
 
 type Query = URLSearchParams;
 type Handler = (db: DB, params: string[], q: Query, user: User) => unknown;
@@ -61,6 +64,16 @@ type Handler = (db: DB, params: string[], q: Query, user: User) => unknown;
 class Unauthorized extends Error {}
 class TooManyRequests extends Error {}
 class Forbidden extends Error {}
+
+/** A route result sent as a file instead of JSON. */
+class CsvDownload {
+  filename: string;
+  content: string;
+  constructor(filename: string, content: string) {
+    this.filename = filename;
+    this.content = content;
+  }
+}
 
 function hallSummary(h: HallRow) {
   return { id: h.id, site_id: h.site_id, name: h.name, notes: h.notes, timezone: h.timezone };
@@ -208,6 +221,14 @@ const routes: [RegExp, Handler][] = [
 
   [/^\/api\/sites\/([^/]+)\/cost$/, (db, [id], q, user) =>
     siteDayCost(db, requireSite(db, id, user), requireDate(q, "date"), q.get("schedule") ?? "optimized")],
+
+  [/^\/api\/sites\/([^/]+)\/weekly-report$/, (db, [id], q, user) =>
+    weeklyReport(db, requireSite(db, id, user), requireDate(q, "week"))],
+
+  [/^\/api\/sites\/([^/]+)\/weekly-report\.csv$/, (db, [id], q, user) => {
+    const report = weeklyReport(db, requireSite(db, id, user), requireDate(q, "week"));
+    return new CsvDownload(reportFilename(report), reportCsv(report));
+  }],
 
   [/^\/api\/halls$/, (db, _p, q, user) =>
     listHalls(db, q.get("site") ?? undefined).filter((h) => user.sites.includes(h.site_id)).map(hallSummary)],
@@ -425,7 +446,17 @@ async function handle(req: IncomingMessage, res: ServerResponse, getDb: () => DB
   }
 
   const params = match![0]!.slice(1).map(decodeURIComponent);
-  send(res, 200, match![1](db, params, url.searchParams, user));
+  const result = match![1](db, params, url.searchParams, user);
+  if (result instanceof CsvDownload) {
+    res.writeHead(200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${result.filename}"`,
+      "content-length": String(Buffer.byteLength(result.content)),
+      "cache-control": "no-store",
+    });
+    return void res.end(result.content);
+  }
+  send(res, 200, result);
 }
 
 /** Returns a request handler; `getDb` is called per request so a missing database yields 503. */

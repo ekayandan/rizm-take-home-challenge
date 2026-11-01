@@ -6,7 +6,7 @@ aside a { display: block; color: #c9d1d9; text-decoration: none; padding: 4px 0;
 aside a.router-link-active { color: #fff; font-weight: 600; }
 aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8b949e; margin: 20px 0 4px; }
 .brand { font-weight: 700; font-size: 18px; }
-main { padding: 24px 32px; }
+main { padding: 24px 32px; min-width: 0; }
 .card { background: #fff; border: 1px solid #dde1e6; border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #eef0f3; font-variant-numeric: tabular-nums; }
@@ -19,3 +19,14 @@ aside { display: flex; flex-direction: column; }
 .account .role { color: #8b949e; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; margin: 2px 0 8px; }
 .account button { font: inherit; font-size: 13px; padding: 4px 10px; border: 1px solid #484f58; border-radius: 6px; background: transparent; color: #e8eaed; cursor: pointer; }
 .account button:hover { background: #30363d; }
+
+@media print {
+  @page { size: A4; margin: 15mm; }
+  :root { background: #fff; }
+  .layout { display: block; }
+  aside, .no-print { display: none !important; }
+  main { padding: 0; }
+  .card { border: 0; padding: 0; margin: 0 0 12px; }
+  .print-page { break-before: page; }
+  tr { break-inside: avoid; }
+}

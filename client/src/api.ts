@@ -149,6 +149,35 @@ export interface Intervention {
   end_utc: string;
 }
 
+export interface TopInterval {
+  hall_id: string;
+  hall_name: string;
+  ts_utc: string;
+  local_date: string;
+  /** Local time; a time the clock change repeats says which occurrence it is. */
+  local_time: string;
+  price_eur_per_mwh: number;
+  cost_eur: number;
+}
+export interface ReportFigures {
+  baseline_eur: number | null;
+  optimized_eur: number | null;
+  post_intervention_eur: number | null;
+  savings_eur: number | null;
+  hours_out_of_bounds: number;
+  hours_covered: number;
+  hours_without_price: number;
+  interventions: number;
+  top_intervals: TopInterval[];
+}
+export interface HallReport extends ReportFigures { hall_id: string; name: string; from: string | null; to: string | null }
+export interface WeeklyReport {
+  site: { id: string; name: string; city: string };
+  week: { start: string; end: string; partial: boolean };
+  summary: ReportFigures;
+  halls: HallReport[];
+}
+
 export type Role = "admin" | "operator" | "viewer";
 export interface User { id: string; name: string; email: string; role: Role; sites: string[] }
 
@@ -216,6 +245,10 @@ export const api = {
   addMaintenance: (id: string, w: NewMaintenanceWindow) =>
     post<MaintenanceWindow>(`/halls/${encodeURIComponent(id)}/maintenance`, w),
   interventions: () => get<Intervention[]>("/interventions"),
+  weeklyReport: (siteId: string, week: string) =>
+    get<WeeklyReport>(`/sites/${encodeURIComponent(siteId)}/weekly-report?week=${encodeURIComponent(week)}`),
+  weeklyReportCsvUrl: (siteId: string, week: string) =>
+    `/api/sites/${encodeURIComponent(siteId)}/weekly-report.csv?week=${encodeURIComponent(week)}`,
   siteDayCost: (id: string, date: string) =>
     get<SiteDayCost>(`/sites/${encodeURIComponent(id)}/cost?date=${date}&schedule=optimized`),
 };
