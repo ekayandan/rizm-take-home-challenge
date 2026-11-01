@@ -52,3 +52,11 @@ Split into performance (#22, this draft PR, awaiting manual tests) and readabili
 
 - Week route on the existing chart and endpoints, with day labels and dates in the hover readout. Hover no longer re-renders the whole chart.
 - The reported freeze could not be reproduced, so the fix is best effort. It was not tested on old hardware.
+
+## Monday reporting (issue #9)
+
+Status: draft PR #20, waiting for manual test approval.
+
+- One report per site: summary first, then a section per hall, each on its own printed page. CSV and print share the same data and notes.
+- Post-intervention cost is the optimized plan with maintenance windows applied and nothing re-planned. When that plan breaks limits it otherwise keeps, the report shows the hours and marks savings as overstated.
+- `applyMaintenance` is also in draft PR #24. Whichever merges second should import the shared copy.
