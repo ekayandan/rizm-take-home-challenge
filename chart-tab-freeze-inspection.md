@@ -1,6 +1,6 @@
 # Chart tab freeze inspection
 
-Issue #5. The complaint: "Switching the range to seven days makes the chart unreadable and slow, and on one machine the browser tab froze."
+Issue #22, part of #5. Readability continues in #23. The complaint: "Switching the range to seven days makes the chart unreadable and slow, and on one machine the browser tab froze."
 
 ## Summary: best-effort fix
 
