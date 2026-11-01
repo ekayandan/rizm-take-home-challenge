@@ -1,5 +1,6 @@
 /** Thin typed client for the JSON API (proxied to the Node server by Vite). */
 import type { MeasuredViolation } from "./violations";
+import { perfLog } from "./perf";
 
 export interface HallSummary { id: string; site_id: string; name: string; notes: string | null; timezone: string }
 /** Weekdays count from 0 = Monday; start and end are local wall-clock times. */
@@ -144,13 +145,16 @@ export function setUnauthorizedHandler(fn: () => void): void {
 }
 
 async function request<T>(method: "GET" | "POST", path: string, data?: unknown): Promise<T> {
+  const start = performance.now();
   const res = await fetch(`/api${path}`, {
     method,
     credentials: "same-origin",
     headers: data === undefined ? undefined : { "content-type": "application/json" },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
+  const received = performance.now();
   const body = await res.json().catch(() => ({}));
+  perfLog(`${method} ${path}`, performance.now() - start, `parse ${(performance.now() - received).toFixed(1)} ms`);
   if (res.status === 401) throw new Unauthorized(body.error ?? "login required");
   if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
   return body as T;
@@ -186,6 +190,10 @@ export const api = {
   dayCost: (id: string, date: string) => get<DayCost>(`/halls/${encodeURIComponent(id)}/cost?date=${date}`),
   series: (id: string, date: string) =>
     get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${date}&to=${date}`),
+  seriesRange: (id: string, from: string, to: string) =>
+    get<HallSeries>(`/halls/${encodeURIComponent(id)}/series?from=${from}&to=${to}`),
+  violationsRange: (id: string, from: string, to: string) =>
+    get<HallViolations>(`/halls/${encodeURIComponent(id)}/violations?from=${from}&to=${to}`),
   scheduleDayCost: async (id: string, date: string, schedule: string) => {
     const r = await get<{ schedules: Record<string, DayCostTraced> }>(
       `/halls/${encodeURIComponent(id)}/cost?date=${date}&schedule=${encodeURIComponent(schedule)}&trace=1`,

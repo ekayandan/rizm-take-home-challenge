@@ -239,6 +239,7 @@ const hallName = computed(() => hall.value?.name ?? store.hallName(props.hallId)
         @click="schedule = s"
       >{{ label(s) }}</button>
     </div>
+    <RouterLink :to="{ name: 'hall-week', params: { hallId, date }, query: route.query }">Week from {{ date }}</RouterLink>
     <span v-if="hall" class="muted small">{{ hall.timezone }} · local time</span>
   </div>
 
